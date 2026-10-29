@@ -1,7 +1,7 @@
 // Service worker Toronto CRM: оболочка сайта (стили, логотип, иконки, шрифт) берётся из кэша,
 // страницы с данными всегда загружаются с сервера и в кэш не попадают.
 // После изменения style.css или иконок увеличьте VERSION, чтобы телефоны получили новые файлы.
-const VERSION = 'toronto-v3';
+const VERSION = 'toronto-v4';
 const SHELL = [
   '/style.css',
   '/logo.png',
@@ -54,4 +54,33 @@ self.addEventListener('fetch', (event) => {
       return fresh;
     }));
   }
+});
+
+// Push без содержимого: берём последнее событие с сайта и показываем уведомление.
+self.addEventListener('push', (event) => {
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    windows.forEach((w) => w.postMessage('events'));
+    let e = { title: 'Toronto CRM', body: 'Обновление по заявке', url: '/' };
+    try {
+      const data = await (await fetch('/api/events?after=latest', { credentials: 'include', cache: 'no-store' })).json();
+      if (data.events && data.events[0]) e = data.events[0];
+    } catch (err) { /* покажем общее уведомление */ }
+    await self.registration.showNotification(e.title, {
+      body: e.body, tag: e.id ? `event-${e.id}` : undefined, data: { url: e.url },
+      icon: '/icon-192.png', badge: '/favicon-32.png',
+    });
+  })());
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const w of windows) {
+      if ('focus' in w) { await w.focus(); return w.navigate(url); }
+    }
+    return self.clients.openWindow(url);
+  })());
 });

@@ -56,6 +56,34 @@ CREATE TABLE IF NOT EXISTS orders (
   cancelled_at TEXT
 );
 
+-- События для уведомлений. target_user_id — кому (водителю о новой заявке); NULL — всем Quant и КЦ (смена статуса).
+CREATE TABLE IF NOT EXISTS events (
+  id INTEGER PRIMARY KEY,
+  order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT '',
+  target_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  url TEXT NOT NULL DEFAULT '/',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Телефоны и браузеры, на которые отправляются push-уведомления.
+CREATE TABLE IF NOT EXISTS push_subs (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL DEFAULT '',
+  auth TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Настройки сайта (ключи VAPID для push).
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT ''
+);
+
 CREATE INDEX IF NOT EXISTS orders_driver ON orders (driver_id, status);
 CREATE INDEX IF NOT EXISTS orders_status ON orders (status, arrive_at)
 `;

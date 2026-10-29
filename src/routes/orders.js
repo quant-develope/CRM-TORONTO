@@ -4,6 +4,7 @@ const { get, all, run } = require('../db');
 const { can, STATUS, STEPS, ACTIVE, PAY_METHODS } = require('../roles');
 const { html, raw, fullName, date, when, nowLocal, money, phoneLink, mapsLink, statusFlag, options } = require('../html');
 const { driversBoard, boardBlock, ACTIVE_SQL } = require('../board');
+const { notify } = require('../push');
 
 const r = new Router();
 
@@ -140,6 +141,7 @@ r.post('/', async (req, res) => {
     o.client_name, o.client_phone, o.address, o.arrive_at, o.price, o.pay_method, o.worker_pay, o.task, o.notify_client, o.driver_id,
     req.user.id, now, now,
   );
+  await notify(req, { order: await get('SELECT * FROM orders WHERE id = ?', lastInsertRowid), status: 'assigned', target: o.driver_id });
   res.flash(`Заявка №${lastInsertRowid} создана и назначена водителю.`);
   res.redirect(`/orders/${lastInsertRowid}`);
 });
@@ -201,6 +203,7 @@ r.post('/:id/edit', async (req, res) => {
   if (o.driver_id !== old.driver_id) {
     await run(`UPDATE orders SET driver_id = ?, status = 'assigned', assigned_at = ?, accepted_at = NULL, arrived_at = NULL, started_at = NULL
                WHERE id = ?`, o.driver_id, nowLocal(), old.id);
+    await notify(req, { order: await get('SELECT * FROM orders WHERE id = ?', old.id), status: 'assigned', target: o.driver_id });
   }
   res.flash('Заявка сохранена.');
   res.redirect(`/orders/${old.id}`);

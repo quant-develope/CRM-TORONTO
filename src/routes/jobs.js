@@ -4,6 +4,7 @@ const { get, all, run } = require('../db');
 const { is, PAY_METHODS } = require('../roles');
 const { html, raw, date, when, nowLocal, todayLocal, money, phoneHref, phoneLink, navUrl, wazeUrl, statusFlag } = require('../html');
 const { ACTIVE_SQL } = require('../board');
+const { notify } = require('../push');
 
 const r = new Router();
 
@@ -107,6 +108,7 @@ r.post('/:id/:step', async (req, res) => {
   const [from, to, column] = step;
   const { changes } = await run(`UPDATE orders SET status = ?, ${column} = ? WHERE id = ? AND driver_id = ? AND status = ?`,
     to, nowLocal(), req.params.id, req.user.id, from);
+  if (changes) await notify(req, { order: await own(req), status: to });
   if (to === 'done' && changes) {
     res.flash('Заявка закрыта. Спасибо!');
     return res.redirect('/');

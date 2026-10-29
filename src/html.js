@@ -2,7 +2,7 @@ const { ROLES, STATUS, can, is } = require('./roles');
 
 const TZ = 'America/Toronto';
 // Меняйте вместе с VERSION в public/sw.js: так браузеры сразу получают новые style.css и app.js.
-const ASSET_VERSION = '3';
+const ASSET_VERSION = '4';
 
 class Raw {
   constructor(value) { this.value = value; }
@@ -163,7 +163,7 @@ function layout({ user, title, body, path = '', flash, refresh }) {
     </div>`);
 
   return html`<!doctype html>
-<html lang="ru">
+<html lang="ru"${user ? html` data-events="1"` : ''}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -205,6 +205,10 @@ ${user ? html`
     ${nav}
   </nav>
   <div class="drawer-foot">
+    <div class="push-box" data-push hidden>
+      <span data-push-status>Уведомления</span>
+      <button type="button" class="secondary" data-push-button hidden>Включить уведомления</button>
+    </div>
     ${installBox()}
     <form method="post" action="/logout"><button class="secondary">Выйти</button></form>
   </div>

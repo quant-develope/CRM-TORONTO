@@ -7,6 +7,7 @@ import orders from './routes/orders';
 import jobs, { driverHome } from './routes/jobs';
 import staff from './routes/staff';
 import report from './routes/report';
+import { eventsFor, lastEventId, vapidKeys } from './push';
 
 const SESSION_DAYS = 30;
 const COOKIE = 'toronto_session';
@@ -170,6 +171,39 @@ app.post('/account', async (req, res) => {
   res.redirect('/');
 });
 
+// --- Уведомления ---
+
+const json = (res, data, status = 200) => {
+  res.headers.set('content-type', 'application/json; charset=utf-8');
+  res.headers.set('cache-control', 'no-store');
+  return res.status(status).send(JSON.stringify(data));
+};
+
+// Новые события после after (для всплывающих уведомлений и для service worker при push).
+app.get('/api/events', async (req, res) => {
+  if (req.query.after === undefined) return json(res, { last: await lastEventId(req.user), events: [] });
+  // Push без содержимого: service worker просит последнее событие.
+  if (req.query.after === 'latest') return json(res, { events: await eventsFor(req.user, 0, 1) });
+  json(res, { events: (await eventsFor(req.user, req.query.after)).reverse() });
+});
+
+app.get('/push/key', async (req, res) => json(res, { key: (await vapidKeys()).publicKey }));
+
+app.post('/push/subscribe', async (req, res) => {
+  const sub = await req.raw.json().catch(() => null);
+  if (!sub || !/^https:\/\//.test(String(sub.endpoint || ''))) return json(res, { ok: false }, 400);
+  await run(`INSERT INTO push_subs (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)
+             ON CONFLICT (endpoint) DO UPDATE SET user_id = excluded.user_id`,
+  req.user.id, sub.endpoint, String(sub.keys?.p256dh || ''), String(sub.keys?.auth || ''));
+  json(res, { ok: true });
+});
+
+app.post('/push/unsubscribe', async (req, res) => {
+  const sub = await req.raw.json().catch(() => ({}));
+  await run('DELETE FROM push_subs WHERE endpoint = ? AND user_id = ?', String(sub.endpoint || ''), req.user.id);
+  json(res, { ok: true });
+});
+
 app.get('/auth-log', async (req, res) => {
   if (!can.viewAuthLog(req.user)) return res.denied();
   const events = { login: 'Вход', logout: 'Выход', failed: 'Неверный пароль', inactive: 'Учётная запись отключена', blocked: 'Заблокировано (много попыток)' };
@@ -206,6 +240,7 @@ export default {
     try {
       await connect(env);
       const req = await makeRequest(request);
+      req.waitUntil = (job) => ctx.waitUntil(job);
       await app.handle(req, res);
       if (res.flashMessage && res.statusCode === 302) res.cookie(FLASH, res.flashMessage, { maxAge: 60e3, secure: req.secure });
       return res.toResponse();
