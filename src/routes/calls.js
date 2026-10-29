@@ -92,7 +92,7 @@ twilio.post('/voice', async (req, res) => {
     await run("INSERT OR IGNORE INTO calls (call_sid, from_number, to_number, status) VALUES (?, ?, ?, 'recorded')", sid, from, to);
     await addEvent(req, { status: 'call', title: `🎙 Записываю звонок ${prettyPhone(from) || 'со скрытого номера'}`, body: 'Режим «принять код»: расшифровка появится в «Звонках»', url: '/calls' });
     // Робот (например, WhatsApp) просит «нажмите 1, чтобы получить код»: ждём начала фразы и нажимаем 1 дважды с паузой 2 секунды.
-    return twiml(res, '<Pause length="3"/><Play digits="1wwww1"/><Record maxLength="90" timeout="15" playBeep="false" trim="do-not-trim" action="/twilio/recorded" transcribe="true" transcribeCallback="/twilio/transcript"/><Hangup/>');
+    return twiml(res, '<Pause length="3"/><Play digits="1wwww1"/><Record maxLength="90" timeout="15" playBeep="false" trim="do-not-trim" action="/twilio/recorded" recordingStatusCallback="/twilio/recorded" transcribe="true" transcribeCallback="/twilio/transcript"/><Hangup/>');
   }
   // Номер, на который позвонили, принадлежит оператору: клиент закрепляется за ним, звонок идёт на его личный телефон.
   const line = await lineFor(to);
@@ -136,10 +136,10 @@ twilio.post('/dial-done', async (req, res) => {
   twiml(res, answered ? '<Hangup/>' : SAY_BUSY);
 });
 
-// Запись готова.
+// Запись готова. Приходит дважды: action (если робот не положил трубку) и recordingStatusCallback (всегда).
 twilio.post('/recorded', async (req, res) => {
   const call = await get('SELECT * FROM calls WHERE call_sid = ?', String(req.body.CallSid || ''));
-  if (call && req.body.RecordingUrl) {
+  if (call && req.body.RecordingUrl && !call.recording_url) {
     await run('UPDATE calls SET recording_url = ? WHERE id = ?', String(req.body.RecordingUrl), call.id);
     await addEvent(req, { status: 'call', title: `🎙 Запись звонка ${prettyPhone(call.from_number)}`, body: 'Нажмите, чтобы послушать', url: '/calls' });
   }
@@ -259,7 +259,7 @@ ${rows.map((c) => html`<tr>
   <td class="nowrap">${when(utcToLocal(c.created_at))}</td>
   <td class="nowrap">${prettyPhone(c.from_number) ? html`${phoneLink(prettyPhone(c.from_number))} ${whatsappButton(c.from_number, { small: true })}` : 'скрытый номер'}</td>
   <td>${c.client_id ? html`<a href="/clients/${c.client_id}">${c.client_name || 'Без имени'}</a>${c.client_address ? html`<br><span class="muted small">${c.client_address}</span>` : ''}${c.login ? html`<br><span class="muted small">оператор ${fullName(c)}</span>` : ''}` : html`<span class="muted">—</span>`}</td>
-  <td>${callFlag(c.status)}${c.recording_url ? html` <a href="/calls/${c.id}/recording" target="_blank">▶ запись</a>` : ''}${c.transcript ? html`<br><b>${c.transcript}</b>` : c.status === 'recorded' ? html`<br><span class="muted small">расшифровка через 1–2 минуты</span>` : ''}${c.source ? html`<br><span class="muted small">🌐 ${c.source}</span>` : ''}${c.note ? html`<div class="small" style="white-space: pre-line">${c.note}</div>` : ''}${CALLBACK.includes(c.status) ? html`<form method="post" action="/calls/${c.id}/called-back" class="inline"><button class="secondary small">Перезвонили</button></form>` : ''}</td>
+  <td>${callFlag(c.status)}${c.recording_url || c.status === 'recorded' ? html` <a href="/calls/${c.id}/recording" target="_blank">▶ запись</a>` : ''}${c.transcript ? html`<br><b>${c.transcript}</b>` : c.status === 'recorded' ? html`<br><span class="muted small">расшифровка через 1–2 минуты</span>` : ''}${c.source ? html`<br><span class="muted small">🌐 ${c.source}</span>` : ''}${c.note ? html`<div class="small" style="white-space: pre-line">${c.note}</div>` : ''}${CALLBACK.includes(c.status) ? html`<form method="post" action="/calls/${c.id}/called-back" class="inline"><button class="secondary small">Перезвонили</button></form>` : ''}</td>
   <td class="nowrap">${c.order_id ? html`<a href="/orders/${c.order_id}">№${c.order_id}</a>` : html`<a href="/orders/new?call=${c.id}" class="button small">Создать заявку</a>`}</td>
 </tr>`)}
 </table></div>` : html`<p class="muted">Звонков пока не было.</p>`}
@@ -325,12 +325,23 @@ calls.post('/code-mode', async (req, res) => {
 });
 
 // Запись звонка: Twilio отдаёт её только с логином (Account SID + Auth Token), поэтому CRM скачивает и отдаёт сама.
+// Если Twilio не прислал адрес записи, CRM находит её сама по CallSid через API Twilio.
 calls.get('/:id/recording', async (req, res) => {
-  const call = await get('SELECT recording_url FROM calls WHERE id = ?', Number(req.params.id) || 0);
+  const call = await get('SELECT id, call_sid, recording_url FROM calls WHERE id = ?', Number(req.params.id) || 0);
   const account = await get("SELECT value FROM settings WHERE key = 'twilio_account'");
-  if (!call || !call.recording_url) return res.status(404).send('Нет записи');
+  if (!call) return res.status(404).send('Нет звонка');
   const headers = account && req.env.TWILIO_AUTH_TOKEN ? { authorization: `Basic ${btoa(`${account.value}:${req.env.TWILIO_AUTH_TOKEN}`)}` } : {};
-  const audio = await fetch(`${call.recording_url}.mp3`, { headers });
+  let url = call.recording_url;
+  if (!url && account) {
+    const list = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${account.value}/Recordings.json?CallSid=${encodeURIComponent(call.call_sid)}`, { headers });
+    const found = list.ok ? ((await list.json()).recordings || [])[0] : null;
+    if (found) {
+      url = `https://api.twilio.com${found.uri.replace(/\.json$/, '')}`;
+      await run('UPDATE calls SET recording_url = ? WHERE id = ?', url, call.id);
+    }
+  }
+  if (!url) return res.status(404).send('Twilio пока не отдал запись. Попробуйте через минуту или посмотрите в Twilio Console → Monitor → Call Recordings.');
+  const audio = await fetch(`${url}.mp3`, { headers });
   if (!audio.ok) return res.status(502).send(`Twilio не отдал запись (${audio.status})`);
   res.raw(new Response(audio.body, { headers: { 'content-type': 'audio/mpeg', 'cache-control': 'private, no-store' } }));
 });
