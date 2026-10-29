@@ -421,3 +421,10 @@ form.inline { display: inline-block; margin-left: 8px; vertical-align: middle; }
   .staff-table tr:hover td { background: none; }
 }
 @media (max-width: 800px) { .staff-table .dropdown-list { left: auto; right: 0; max-width: calc(100vw - 48px); } }
+form.search input { min-width: 240px; }
+
+/* WhatsApp */
+.button.wa { display: inline-flex; align-items: center; gap: 6px; background: #25d366; border-color: #25d366; color: #fff; }
+.button.wa:hover { background: #1da851; border-color: #1da851; }
+.button.wa svg { width: 18px; height: 18px; flex: none; }
+.button.wa.small svg { width: 14px; height: 14px; }

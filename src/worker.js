@@ -10,6 +10,7 @@ import sites from './routes/sites';
 import report from './routes/report';
 import { eventsFor, lastEventId, vapidKeys } from './push';
 import { twilio, calls } from './routes/calls';
+import { clients } from './routes/clients';
 
 const SESSION_DAYS = 30;
 const COOKIE = 'toronto_session';
@@ -231,6 +232,7 @@ app.use('/staff', staff);
 app.use('/sites', sites);
 app.use('/report', report);
 app.use('/calls', calls);
+app.use('/clients', clients);
 
 app.use((req, res) => res.status(404).page('Страница не найдена', html`<p><a href="/">На главную</a></p>`));
 

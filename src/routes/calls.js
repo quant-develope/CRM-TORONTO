@@ -4,8 +4,9 @@
 const { Router } = require('../mini');
 const { get, all, run } = require('../db');
 const { can } = require('../roles');
-const { html, escape, date, utcToLocal, when, phoneLink } = require('../html');
+const { html, whatsappButton, escape, date, utcToLocal, when, phoneLink, fullName, options } = require('../html');
 const { addEvent } = require('../push');
+const { digits10, prettyPhone, normalizePhone, lineFor, ensureClient, backfill } = require('./clients');
 
 const CALL_STATUS = {
   ringing: ['Звонит', 'blue'],
@@ -14,37 +15,10 @@ const CALL_STATUS = {
   called_back: ['Перезвонили', 'gray'],
 };
 
-// Последние 10 цифр: так «+1 (416) 555-0100», «416-555-0100» и «+14165550100» считаются одним номером.
-const digits10 = (phone) => String(phone || '').replace(/\D/g, '').slice(-10);
-const PHONE_SQL = "substr(replace(replace(replace(replace(replace(replace(client_phone, ' ', ''), '-', ''), '(', ''), ')', ''), '+', ''), '.', ''), -10)";
-
-// «+14165550100» → «+1 416 555-0100».
-function prettyPhone(phone) {
-  const d = String(phone || '').replace(/\D/g, '');
-  if (d.length === 11 && d[0] === '1') return `+1 ${d.slice(1, 4)} ${d.slice(4, 7)}-${d.slice(7)}`;
-  if (d.length === 10) return `+1 ${d.slice(0, 3)} ${d.slice(3, 6)}-${d.slice(6)}`;
-  return d.length >= 7 ? phone : '';
-}
-
-// Последняя заявка с этого номера — чтобы узнать постоянного клиента.
-function lastOrderFor(phone) {
-  const d = digits10(phone);
-  if (d.length < 10) return undefined;
-  return get(`SELECT * FROM orders WHERE ${PHONE_SQL} = ? ORDER BY id DESC LIMIT 1`, d);
-}
-
 // Номера операторов для переадресации хранятся в settings (их меняет Quant на странице «Звонки»).
 async function forwardNumbers() {
   const row = await get("SELECT value FROM settings WHERE key = 'call_forward'");
   return String(row ? row.value : '').split(/[\s,;]+/).map(normalizePhone).filter(Boolean);
-}
-
-// Номер в формате E.164: «416 555 0100» → «+14165550100».
-function normalizePhone(phone) {
-  const d = String(phone || '').replace(/\D/g, '');
-  if (d.length === 10) return `+1${d}`;
-  if (d.length >= 11) return `+${d}`;
-  return '';
 }
 
 // --- Запросы от Twilio (без входа в CRM, но с проверкой подписи) ---
@@ -100,16 +74,22 @@ twilio.use(async (req, res, next) => {
 twilio.post('/voice', async (req, res) => {
   const from = String(req.body.From || '');
   const sid = String(req.body.CallSid || '');
-  const numbers = await forwardNumbers();
+  const to = String(req.body.To || '');
+  // Номер, на который позвонили, принадлежит оператору: клиент закрепляется за ним, звонок идёт на его личный телефон.
+  const line = await lineFor(to);
+  const personal = line ? normalizePhone(line.user_phone) : '';
+  const numbers = personal ? [personal] : await forwardNumbers();
   const status = numbers.length ? 'ringing' : 'missed';
-  const { changes, lastInsertRowid } = await run('INSERT OR IGNORE INTO calls (call_sid, from_number, to_number, status) VALUES (?, ?, ?, ?)',
-    sid, from, String(req.body.To || ''), status);
+  const client = await ensureClient({ phone: from, ownerId: line ? line.user_id : null, firstNumber: to });
+  const { changes, lastInsertRowid } = await run('INSERT OR IGNORE INTO calls (call_sid, from_number, to_number, status, client_id) VALUES (?, ?, ?, ?, ?)',
+    sid, from, to, status, client ? client.id : null);
   if (changes) {
-    const client = await lastOrderFor(from);
+    const owner = client && client.owner_id ? await get('SELECT first_name, last_name, login FROM users WHERE id = ?', client.owner_id) : null;
+    const known = client && (client.name || client.address);
     await addEvent(req, {
       status: 'call',
       title: `📞 Звонок ${prettyPhone(from) || 'со скрытого номера'}`,
-      body: client ? `${client.client_name || 'Клиент'} · ${client.address} · нажмите, чтобы создать заявку` : 'Новый клиент · нажмите, чтобы создать заявку',
+      body: `${known ? `${client.name || 'Клиент'}${client.address ? ` · ${client.address}` : ''}` : 'Новый клиент'}${owner ? ` · оператор ${fullName(owner)}` : ''} · нажмите, чтобы создать заявку`,
       url: `/orders/new?call=${lastInsertRowid}`,
     });
   }
@@ -159,15 +139,16 @@ const callFlag = (status) => {
 calls.get('/', async (req, res) => {
   // Звонок, который «звонит» дольше 3 минут, на самом деле закончился без ответа.
   await run("UPDATE calls SET status = 'missed' WHERE status = 'ringing' AND created_at < datetime('now', '-3 minutes')");
-  const rows = await all('SELECT * FROM calls ORDER BY id DESC LIMIT 200');
-  const known = new Map();
-  for (const c of rows) {
-    const d = digits10(c.from_number);
-    if (!known.has(d)) known.set(d, await lastOrderFor(c.from_number));
-  }
+  await backfill();
+  const rows = await all(`SELECT k.*, c.name AS client_name, c.address AS client_address, u.first_name, u.last_name, u.login
+                          FROM calls k LEFT JOIN clients c ON c.id = k.client_id LEFT JOIN users u ON u.id = c.owner_id
+                          ORDER BY k.id DESC LIMIT 200`);
+  const lines = await all('SELECT l.*, u.first_name, u.last_name, u.login, u.phone FROM lines l LEFT JOIN users u ON u.id = l.user_id ORDER BY l.number10');
   const missed = rows.filter((c) => c.status === 'missed').length;
   const numbers = await forwardNumbers();
   const quant = can.manageCalls(req.user);
+  const office = Object.fromEntries((await all("SELECT * FROM users WHERE active = 1 AND role IN ('quant', 'web', 'dispatcher') ORDER BY first_name"))
+    .map((u) => [u.id, fullName(u)]));
   const lastError = quant ? await get("SELECT value FROM settings WHERE key = 'call_error'") : null;
   res.page('Звонки', html`
 ${req.env.TWILIO_AUTH_TOKEN || req.env.SIGNALWIRE_SIGNING_KEY ? '' : html`<p class="notice">Телефония ещё не подключена: в Cloudflare нет секрета <b>TWILIO_AUTH_TOKEN</b>. Инструкция — в README, раздел «Телефония».</p>`}
@@ -176,19 +157,31 @@ ${lastError ? html`<p class="notice">Последний отклонённый �
 ${missed ? html`<p class="notice">Пропущенных звонков: <b>${missed}</b> — нужно перезвонить.</p>` : ''}
 ${rows.length ? html`<div class="table-wrap"><table>
 <tr><th>Время</th><th>Номер</th><th>Клиент</th><th>Звонок</th><th>Заявка</th></tr>
-${rows.map((c) => {
-    const client = known.get(digits10(c.from_number));
-    return html`<tr>
+${rows.map((c) => html`<tr>
   <td class="nowrap">${when(utcToLocal(c.created_at))}</td>
-  <td class="nowrap">${prettyPhone(c.from_number) ? phoneLink(prettyPhone(c.from_number)) : 'скрытый номер'}</td>
-  <td>${client ? html`${client.client_name || '—'}<br><span class="muted small">${client.address}</span>` : html`<span class="muted">новый</span>`}</td>
+  <td class="nowrap">${prettyPhone(c.from_number) ? html`${phoneLink(prettyPhone(c.from_number))} ${whatsappButton(c.from_number, { small: true })}` : 'скрытый номер'}</td>
+  <td>${c.client_id ? html`<a href="/clients/${c.client_id}">${c.client_name || 'Без имени'}</a>${c.client_address ? html`<br><span class="muted small">${c.client_address}</span>` : ''}${c.login ? html`<br><span class="muted small">оператор ${fullName(c)}</span>` : ''}` : html`<span class="muted">—</span>`}</td>
   <td>${callFlag(c.status)}${c.status === 'missed' ? html`<form method="post" action="/calls/${c.id}/called-back" class="inline"><button class="secondary small">Перезвонили</button></form>` : ''}</td>
   <td class="nowrap">${c.order_id ? html`<a href="/orders/${c.order_id}">№${c.order_id}</a>` : html`<a href="/orders/new?call=${c.id}" class="button small">Создать заявку</a>`}</td>
-</tr>`;
-  })}
+</tr>`)}
 </table></div>` : html`<p class="muted">Звонков пока не было.</p>`}
-<h2>Переадресация</h2>
-<p class="muted">Звонок на номер CRM переадресуется на эти телефоны: звонят все сразу, разговор у того, кто ответил первым.
+<h2>Номера и операторы</h2>
+<p class="muted">Клиент, позвонивший на номер оператора, закрепляется за этим оператором, а звонок идёт на его личный телефон (из карточки сотрудника).
+Номера, которых здесь нет, ищутся среди номеров сайтов («Сайты» → кто ведёт).</p>
+${lines.length ? html`<div class="table-wrap"><table>
+<tr><th>Номер</th><th>Оператор</th><th>Звонок идёт на</th>${quant ? html`<th></th>` : ''}</tr>
+${lines.map((l) => html`<tr><td class="nowrap">${prettyPhone(l.number)}</td><td>${l.user_id ? fullName(l) : '—'}</td>
+  <td class="nowrap">${l.phone ? prettyPhone(l.phone) || l.phone : html`<span class="muted">телефона нет — на общую переадресацию</span>`}</td>
+  ${quant ? html`<td><form method="post" action="/calls/lines/delete" class="inline"><input type="hidden" name="number10" value="${l.number10}"><button class="secondary small">Убрать</button></form></td>` : ''}</tr>`)}
+</table></div>` : html`<p class="muted">Номера пока не привязаны.</p>`}
+${quant ? html`<form method="post" action="/calls/lines" class="grid">
+  <label>Номер телефонии<input name="number" type="tel" placeholder="+1 416 555-0100" required autocomplete="off"></label>
+  <label>Оператор<select name="user_id" required>${options(office, null, { empty: '— выберите —' })}</select></label>
+  <div><button>Привязать</button></div>
+</form>` : ''}
+
+<h2>Общая переадресация</h2>
+<p class="muted">Звонок на номер без оператора переадресуется на эти телефоны: звонят все сразу, разговор у того, кто ответил первым.
 Если никто не ответил за 25 секунд, клиенту говорят, что ему перезвонят, а звонок попадает в пропущенные.
 ${numbers.length ? '' : 'Сейчас номеров нет — клиенту сразу говорят, что ему перезвонят.'}</p>
 ${quant ? html`<form method="post" action="/calls/forward" class="grid">
@@ -205,6 +198,26 @@ calls.post('/forward', async (req, res) => {
   res.redirect('/calls');
 });
 
+calls.post('/lines', async (req, res) => {
+  if (!can.manageCalls(req.user)) return res.denied();
+  const number = normalizePhone(req.body.number);
+  const userId = Number(req.body.user_id) || null;
+  if (!number || !userId) {
+    res.flash('Укажите номер и оператора.');
+    return res.redirect('/calls');
+  }
+  await run('INSERT INTO lines (number10, number, user_id) VALUES (?, ?, ?) ON CONFLICT (number10) DO UPDATE SET number = excluded.number, user_id = excluded.user_id',
+    digits10(number), number, userId);
+  res.flash(`Номер ${prettyPhone(number)} привязан.`);
+  res.redirect('/calls');
+});
+
+calls.post('/lines/delete', async (req, res) => {
+  if (!can.manageCalls(req.user)) return res.denied();
+  await run('DELETE FROM lines WHERE number10 = ?', String(req.body.number10 || ''));
+  res.redirect('/calls');
+});
+
 calls.post('/clear-error', async (req, res) => {
   if (!can.manageCalls(req.user)) return res.denied();
   await run("DELETE FROM settings WHERE key = 'call_error'");
@@ -216,16 +229,17 @@ calls.post('/:id/called-back', async (req, res) => {
   res.redirect('/calls');
 });
 
-// Для формы новой заявки: номер звонка и данные клиента из его прошлой заявки.
+// Для формы новой заявки: номер звонка и данные клиента из базы.
 async function callPrefill(callId) {
   const call = await get('SELECT * FROM calls WHERE id = ?', Number(callId) || 0);
   if (!call) return null;
-  const client = await lastOrderFor(call.from_number);
+  const client = call.client_id ? await get('SELECT * FROM clients WHERE id = ?', call.client_id) : null;
   return {
     call,
+    client,
     order: {
       client_phone: prettyPhone(call.from_number),
-      client_name: client ? client.client_name : '',
+      client_name: client ? client.name : '',
       address: client ? client.address : '',
     },
   };

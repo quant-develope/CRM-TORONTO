@@ -1,7 +1,7 @@
 // Service worker Toronto CRM: оболочка сайта (стили, логотип, иконки, шрифт) берётся из кэша,
 // страницы с данными всегда загружаются с сервера и в кэш не попадают.
 // После изменения style.css или иконок увеличьте VERSION, чтобы телефоны получили новые файлы.
-const VERSION = 'toronto-v9';
+const VERSION = 'toronto-v10';
 const SHELL = [
   '/style.css',
   '/logo.png',

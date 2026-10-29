@@ -2,7 +2,7 @@ const { ROLES, STATUS, can, is } = require('./roles');
 
 const TZ = 'America/Toronto';
 // Меняйте вместе с VERSION в public/sw.js: так браузеры сразу получают новые style.css и app.js.
-const ASSET_VERSION = '9';
+const ASSET_VERSION = '10';
 
 class Raw {
   constructor(value) { this.value = value; }
@@ -88,6 +88,16 @@ function phoneLink(phone) {
   return html`<a href="${phoneHref(phone)}">${phone}</a>`;
 }
 
+// Написать клиенту в WhatsApp: ссылка wa.me с номером в международном формате (10 цифр — Канада/США, +1).
+const WA_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.3-.4.8-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4.1-.7.3-.2.3-.9.9-.9 2.2s.9 2.5 1 2.7c.1.2 1.8 2.8 4.4 3.9 1.6.7 2.3.8 3.1.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z"/></svg>';
+
+function whatsappButton(phone, { small = false } = {}) {
+  let d = String(phone || '').replace(/\D/g, '');
+  if (d.length === 10) d = `1${d}`;
+  if (d.length < 11) return '';
+  return html`<a href="https://wa.me/${d}" target="_blank" rel="noopener" class="button wa${small ? ' small' : ''}">${raw(WA_ICON)}WhatsApp</a>`;
+}
+
 // В поле адреса могут вставить готовую ссылку на карты — тогда ведём прямо по ней.
 const isUrl = (address) => /^https?:\/\//i.test(String(address || '').trim());
 
@@ -126,7 +136,7 @@ function options(list, selected, { empty } = {}) {
 function menuFor(user) {
   const groups = [];
   if (can.manageOrders(user)) {
-    groups.push(['Заявки', [['/orders/new', 'Новая заявка'], ['/orders', 'Все заявки'], ['/calls', 'Звонки'], ['/drivers', 'Свободны / заняты'], ['/report', 'Отчёт']]]);
+    groups.push(['Заявки', [['/orders/new', 'Новая заявка'], ['/orders', 'Все заявки'], ['/clients', 'Клиенты'], ['/calls', 'Звонки'], ['/drivers', 'Свободны / заняты'], ['/report', 'Отчёт']]]);
   }
   if (is(user, 'driver')) {
     groups.push(['Мои заявки', [['/jobs/done', 'Выполненные заявки']]]);
@@ -234,5 +244,5 @@ ${user ? html`
 
 module.exports = {
   html, raw, escape, layout, brandLogo, installBox, pushBanner, fullName, date, when, nowLocal, todayLocal, utcToLocal, money,
-  phoneHref, phoneLink, navUrl, wazeUrl, mapsLink, roleTag, statusFlag, options,
+  phoneHref, phoneLink, whatsappButton, navUrl, wazeUrl, mapsLink, roleTag, statusFlag, options,
 };

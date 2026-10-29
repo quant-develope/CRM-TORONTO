@@ -114,6 +114,28 @@ CREATE TABLE IF NOT EXISTS user_sites (
   PRIMARY KEY (user_id, site_id)
 );
 
+-- База клиентов. phone10 — последние 10 цифр номера (по ним узнаём клиента). owner_id — оператор клиента:
+-- тот, на чей номер (сайта) клиент дозвонился первым, или тот, кто создал его первую заявку.
+CREATE TABLE IF NOT EXISTS clients (
+  id INTEGER PRIMARY KEY,
+  phone10 TEXT NOT NULL UNIQUE,
+  phone TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL DEFAULT '',
+  address TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  first_number TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Номера телефонии и их операторы: клиент, позвонивший на этот номер, закрепляется за оператором,
+-- а звонок переадресуется на личный телефон оператора (users.phone).
+CREATE TABLE IF NOT EXISTS lines (
+  number10 TEXT PRIMARY KEY,
+  number TEXT NOT NULL,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+
 CREATE INDEX IF NOT EXISTS orders_driver ON orders (driver_id, status);
 CREATE INDEX IF NOT EXISTS orders_status ON orders (status, arrive_at)
 `;
@@ -176,6 +198,10 @@ async function migrate() {
   const orderColumns = (await all('PRAGMA table_info(orders)')).map((c) => c.name);
   if (!orderColumns.includes('paid_amount')) await run('ALTER TABLE orders ADD COLUMN paid_amount REAL');
   if (!orderColumns.includes('paid_method')) await run('ALTER TABLE orders ADD COLUMN paid_method TEXT');
+  // Клиент заявки и звонка (база клиентов).
+  if (!orderColumns.includes('client_id')) await run('ALTER TABLE orders ADD COLUMN client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL');
+  const callColumns = (await all('PRAGMA table_info(calls)')).map((c) => c.name);
+  if (!callColumns.includes('client_id')) await run('ALTER TABLE calls ADD COLUMN client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL');
 }
 
 // Вызывается в начале каждого запроса.

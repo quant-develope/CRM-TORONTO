@@ -2,10 +2,11 @@
 const { Router } = require('../mini');
 const { get, all, run } = require('../db');
 const { can, STATUS, STEPS, ACTIVE, PAY_METHODS, PAY_HOW, paidAmount, paidMethod, paidDiffers } = require('../roles');
-const { html, raw, fullName, date, when, nowLocal, money, phoneLink, mapsLink, statusFlag, options } = require('../html');
+const { html, raw, whatsappButton, fullName, date, when, nowLocal, money, phoneLink, mapsLink, statusFlag, options } = require('../html');
 const { driversBoard, boardBlock, ACTIVE_SQL } = require('../board');
 const { notify } = require('../push');
 const { callPrefill } = require('./calls');
+const { ensureClient } = require('./clients');
 
 const r = new Router();
 
@@ -129,11 +130,14 @@ async function readForm(body) {
 // ?call=ID — заявка по входящему звонку: номер уже подставлен, имя и адрес — из прошлой заявки этого клиента.
 r.get('/new', async (req, res) => {
   const fromCall = req.query.call ? await callPrefill(req.query.call) : null;
-  const o = { ...(fromCall ? fromCall.order : {}), driver_id: Number(req.query.driver) || null };
+  // ?client=ID — заявка из карточки клиента.
+  const client = req.query.client ? await get('SELECT * FROM clients WHERE id = ?', Number(req.query.client) || 0) : null;
+  const prefill = fromCall ? fromCall.order : client ? { client_name: client.name, client_phone: client.phone, address: client.address } : {};
+  const o = { ...prefill, driver_id: Number(req.query.driver) || null };
   const callId = fromCall ? fromCall.call.id : null;
   res.page('Новая заявка', html`
 ${fromCall && fromCall.call.order_id ? html`<p class="notice">По этому звонку уже есть <a href="/orders/${fromCall.call.order_id}">заявка №${fromCall.call.order_id}</a>.</p>` : ''}
-${fromCall && o.address ? html`<p class="notice">Звонит постоянный клиент: имя и адрес взяты из его прошлой заявки — проверьте.</p>` : ''}
+${fromCall && fromCall.client && (o.client_name || o.address) ? html`<p class="notice">Клиент уже есть в базе: <a href="/clients/${fromCall.client.id}">${o.client_name || 'карточка клиента'}</a>. Имя и адрес подставлены — проверьте.</p>` : ''}
 ${await form(o, { action: '/orders', submit: 'Создать и назначить', callId })}`);
 });
 
@@ -150,6 +154,9 @@ r.post('/', async (req, res) => {
     o.client_name, o.client_phone, o.address, o.arrive_at, o.price, o.pay_method, o.worker_pay, o.task, o.notify_client, o.driver_id,
     req.user.id, now, now,
   );
+  // Клиент заявки: найти по номеру или завести; если новый — закрепить за тем, кто создал заявку.
+  const client = await ensureClient({ phone: o.client_phone, name: o.client_name, address: o.address, ownerId: req.user.id });
+  if (client) await run('UPDATE orders SET client_id = ? WHERE id = ?', client.id, lastInsertRowid);
   if (Number(req.body.call_id)) await run('UPDATE calls SET order_id = ? WHERE id = ? AND order_id IS NULL', lastInsertRowid, Number(req.body.call_id));
   await notify(req, { order: await get('SELECT * FROM orders WHERE id = ?', lastInsertRowid), status: 'assigned', target: o.driver_id });
   res.flash(`Заявка №${lastInsertRowid} создана и назначена водителю.`);
@@ -169,7 +176,7 @@ r.get('/:id', async (req, res) => {
   res.page(`Заявка №${o.id}`, html`
 <p>${statusFlag(o.status)}</p>
 <dl class="facts">
-  <dt>Клиент</dt><dd>${o.client_name || '—'} · ${phoneLink(o.client_phone)}</dd>
+  <dt>Клиент</dt><dd>${o.client_id ? html`<a href="/clients/${o.client_id}">${o.client_name || 'Клиент'}</a>` : o.client_name || '—'} · ${phoneLink(o.client_phone)} ${whatsappButton(o.client_phone, { small: true })}</dd>
   <dt>Адрес</dt><dd>${mapsLink(o.address)}</dd>
   <dt>Приехать</dt><dd>${date(o.arrive_at)}</dd>
   <dt>Клиент платит</dt><dd>${money(o.price)} · ${PAY_METHODS[o.pay_method]}</dd>
@@ -210,6 +217,8 @@ r.post('/:id/edit', async (req, res) => {
   await run(`UPDATE orders SET client_name = ?, client_phone = ?, address = ?, arrive_at = ?, price = ?, pay_method = ?, worker_pay = ?, task = ?,
              notify_client = ? WHERE id = ?`,
   o.client_name, o.client_phone, o.address, o.arrive_at, o.price, o.pay_method, o.worker_pay, o.task, o.notify_client, old.id);
+  const client = await ensureClient({ phone: o.client_phone, name: o.client_name, address: o.address, ownerId: old.created_by });
+  await run('UPDATE orders SET client_id = ? WHERE id = ?', client ? client.id : null, old.id);
   // Новый водитель — заявка снова ждёт принятия.
   if (o.driver_id !== old.driver_id) {
     await run(`UPDATE orders SET driver_id = ?, status = 'assigned', assigned_at = ?, accepted_at = NULL, arrived_at = NULL, started_at = NULL
