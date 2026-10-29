@@ -139,6 +139,15 @@ CREATE TABLE IF NOT EXISTS lines (
   user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
 
+-- Входящие SMS на номера телефонии.
+CREATE TABLE IF NOT EXISTS sms (
+  id INTEGER PRIMARY KEY,
+  from_number TEXT NOT NULL DEFAULT '',
+  to_number TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS orders_driver ON orders (driver_id, status);
 CREATE INDEX IF NOT EXISTS orders_status ON orders (status, arrive_at)
 `;
@@ -218,6 +227,9 @@ async function migrate() {
   for (const col of ['source', 'lead_name', 'lead_address', 'note']) {
     if (!callColumns.includes(col)) await run(`ALTER TABLE calls ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`);
   }
+  // Режим «принять код»: запись звонка и её расшифровка.
+  if (!callColumns.includes('recording_url')) await run("ALTER TABLE calls ADD COLUMN recording_url TEXT NOT NULL DEFAULT ''");
+  if (!callColumns.includes('transcript')) await run("ALTER TABLE calls ADD COLUMN transcript TEXT NOT NULL DEFAULT ''");
 }
 
 // Вызывается в начале каждого запроса.

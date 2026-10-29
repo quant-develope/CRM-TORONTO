@@ -13,6 +13,7 @@ const CALL_STATUS = {
   ringing: ['Звонит', 'blue'],
   answered: ['Принят', 'green'],
   missed: ['Пропущен — перезвонить', 'red'],
+  recorded: ['Записан (код)', 'orange'],
   called_back: ['Перезвонили', 'gray'],
   site: ['Заявка с сайта — позвонить', 'red'],
 };
@@ -74,11 +75,24 @@ twilio.use(async (req, res, next) => {
   next();
 });
 
+// Режим «принять код»: Quant включает на 10 минут, звонки не переадресуются, а записываются и расшифровываются
+// (например, сервис диктует код подтверждения). Срок хранится в settings как время UTC.
+async function codeModeUntil() {
+  const row = await get("SELECT value FROM settings WHERE key = 'code_mode_until'");
+  return row && row.value > new Date().toISOString() ? row.value : '';
+}
+
 // Входящий звонок.
 twilio.post('/voice', async (req, res) => {
   const from = String(req.body.From || '');
   const sid = String(req.body.CallSid || '');
   const to = String(req.body.To || '');
+  if (req.body.AccountSid) await run("INSERT INTO settings (key, value) VALUES ('twilio_account', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", String(req.body.AccountSid));
+  if (await codeModeUntil()) {
+    await run("INSERT OR IGNORE INTO calls (call_sid, from_number, to_number, status) VALUES (?, ?, ?, 'recorded')", sid, from, to);
+    await addEvent(req, { status: 'call', title: `🎙 Записываю звонок ${prettyPhone(from) || 'со скрытого номера'}`, body: 'Режим «принять код»: расшифровка появится в «Звонках»', url: '/calls' });
+    return twiml(res, '<Pause length="1"/><Record maxLength="90" timeout="15" playBeep="false" trim="do-not-trim" action="/twilio/recorded" transcribe="true" transcribeCallback="/twilio/transcript"/><Hangup/>');
+  }
   // Номер, на который позвонили, принадлежит оператору: клиент закрепляется за ним, звонок идёт на его личный телефон.
   const line = await lineFor(to);
   const personal = line ? normalizePhone(line.user_phone) : '';
@@ -119,6 +133,36 @@ twilio.post('/dial-done', async (req, res) => {
     }
   }
   twiml(res, answered ? '<Hangup/>' : SAY_BUSY);
+});
+
+// Запись готова.
+twilio.post('/recorded', async (req, res) => {
+  const call = await get('SELECT * FROM calls WHERE call_sid = ?', String(req.body.CallSid || ''));
+  if (call && req.body.RecordingUrl) {
+    await run('UPDATE calls SET recording_url = ? WHERE id = ?', String(req.body.RecordingUrl), call.id);
+    await addEvent(req, { status: 'call', title: `🎙 Запись звонка ${prettyPhone(call.from_number)}`, body: 'Нажмите, чтобы послушать', url: '/calls' });
+  }
+  twiml(res, '<Hangup/>');
+});
+
+// Расшифровка записи (Twilio присылает через минуту-две).
+twilio.post('/transcript', async (req, res) => {
+  const call = await get('SELECT * FROM calls WHERE call_sid = ?', String(req.body.CallSid || ''));
+  const text = String(req.body.TranscriptionText || '').trim();
+  if (call) {
+    await run('UPDATE calls SET transcript = ? WHERE id = ?', text || '(не удалось расшифровать — послушайте запись)', call.id);
+    await addEvent(req, { status: 'call', title: `Расшифровка звонка ${prettyPhone(call.from_number)}`, body: text || 'Не удалось расшифровать — послушайте запись', url: '/calls' });
+  }
+  res.status(204).send('');
+});
+
+// Входящее SMS (в Twilio: «A message comes in» → /twilio/sms).
+twilio.post('/sms', async (req, res) => {
+  const from = String(req.body.From || '');
+  const body = String(req.body.Body || '');
+  await run('INSERT INTO sms (from_number, to_number, body) VALUES (?, ?, ?)', from, String(req.body.To || ''), body);
+  await addEvent(req, { status: 'call', title: `✉️ SMS ${prettyPhone(from) || from}`, body, url: '/calls' });
+  twiml(res, '');
 });
 
 // Звонок закончился (Call status changes в настройках номера). Если клиент положил трубку, пока звонили операторы, — пропущен.
@@ -190,7 +234,19 @@ calls.get('/', async (req, res) => {
   const office = Object.fromEntries((await all("SELECT * FROM users WHERE active = 1 AND role IN ('quant', 'web', 'dispatcher') ORDER BY first_name"))
     .map((u) => [u.id, fullName(u)]));
   const lastError = quant ? await get("SELECT value FROM settings WHERE key = 'call_error'") : null;
+  const codeUntil = await codeModeUntil();
+  const sms = await all('SELECT * FROM sms ORDER BY id DESC LIMIT 30');
   res.page('Звонки', html`
+${quant ? html`<div class="notice">
+  ${codeUntil ? html`<b>Режим «принять код» включён</b> до ${date(utcToLocal(codeUntil.slice(0, 19).replace('T', ' ')))}: звонки не переадресуются, а записываются и расшифровываются.
+    <form method="post" action="/calls/code-mode" class="inline"><input type="hidden" name="off" value="1"><button class="secondary small">Выключить</button></form>`
+    : html`<b>Принять код по звонку.</b> На 10 минут звонки не переадресуются: CRM сама берёт трубку, записывает до 90 секунд и показывает расшифровку здесь.
+    <form method="post" action="/calls/code-mode" class="inline"><button class="small">Включить на 10 минут</button></form>`}
+</div>` : ''}
+${sms.length ? html`<h2>SMS</h2><div class="table-wrap"><table>
+<tr><th>Время</th><th>От кого</th><th>Текст</th></tr>
+${sms.map((m) => html`<tr><td class="nowrap">${when(utcToLocal(m.created_at))}</td><td class="nowrap">${prettyPhone(m.from_number) || m.from_number}</td><td><b>${m.body}</b></td></tr>`)}
+</table></div><h2>Звонки</h2>` : ''}
 ${req.env.TWILIO_AUTH_TOKEN || req.env.SIGNALWIRE_SIGNING_KEY ? '' : html`<p class="notice">Телефония ещё не подключена: в Cloudflare нет секрета <b>TWILIO_AUTH_TOKEN</b>. Инструкция — в README, раздел «Телефония».</p>`}
 ${lastError ? html`<p class="notice">Последний отклонённый звонок: ${date(utcToLocal(lastError.value.slice(0, 19)))} — ${lastError.value.slice(20)}
   <form method="post" action="/calls/clear-error" class="inline"><button class="secondary small">Скрыть</button></form></p>` : ''}
@@ -202,7 +258,7 @@ ${rows.map((c) => html`<tr>
   <td class="nowrap">${when(utcToLocal(c.created_at))}</td>
   <td class="nowrap">${prettyPhone(c.from_number) ? html`${phoneLink(prettyPhone(c.from_number))} ${whatsappButton(c.from_number, { small: true })}` : 'скрытый номер'}</td>
   <td>${c.client_id ? html`<a href="/clients/${c.client_id}">${c.client_name || 'Без имени'}</a>${c.client_address ? html`<br><span class="muted small">${c.client_address}</span>` : ''}${c.login ? html`<br><span class="muted small">оператор ${fullName(c)}</span>` : ''}` : html`<span class="muted">—</span>`}</td>
-  <td>${callFlag(c.status)}${c.source ? html`<br><span class="muted small">🌐 ${c.source}</span>` : ''}${c.note ? html`<div class="small" style="white-space: pre-line">${c.note}</div>` : ''}${CALLBACK.includes(c.status) ? html`<form method="post" action="/calls/${c.id}/called-back" class="inline"><button class="secondary small">Перезвонили</button></form>` : ''}</td>
+  <td>${callFlag(c.status)}${c.recording_url ? html` <a href="/calls/${c.id}/recording" target="_blank">▶ запись</a>` : ''}${c.transcript ? html`<br><b>${c.transcript}</b>` : c.status === 'recorded' ? html`<br><span class="muted small">расшифровка через 1–2 минуты</span>` : ''}${c.source ? html`<br><span class="muted small">🌐 ${c.source}</span>` : ''}${c.note ? html`<div class="small" style="white-space: pre-line">${c.note}</div>` : ''}${CALLBACK.includes(c.status) ? html`<form method="post" action="/calls/${c.id}/called-back" class="inline"><button class="secondary small">Перезвонили</button></form>` : ''}</td>
   <td class="nowrap">${c.order_id ? html`<a href="/orders/${c.order_id}">№${c.order_id}</a>` : html`<a href="/orders/new?call=${c.id}" class="button small">Создать заявку</a>`}</td>
 </tr>`)}
 </table></div>` : html`<p class="muted">Звонков пока не было.</p>`}
@@ -257,6 +313,25 @@ calls.post('/lines/delete', async (req, res) => {
   if (!can.manageCalls(req.user)) return res.denied();
   await run('DELETE FROM lines WHERE number10 = ?', String(req.body.number10 || ''));
   res.redirect('/calls');
+});
+
+calls.post('/code-mode', async (req, res) => {
+  if (!can.manageCalls(req.user)) return res.denied();
+  const until = req.body.off ? '' : new Date(Date.now() + 10 * 60e3).toISOString();
+  await run("INSERT INTO settings (key, value) VALUES ('code_mode_until', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", until);
+  res.flash(until ? 'Режим «принять код» включён на 10 минут.' : 'Режим «принять код» выключен.');
+  res.redirect('/calls');
+});
+
+// Запись звонка: Twilio отдаёт её только с логином (Account SID + Auth Token), поэтому CRM скачивает и отдаёт сама.
+calls.get('/:id/recording', async (req, res) => {
+  const call = await get('SELECT recording_url FROM calls WHERE id = ?', Number(req.params.id) || 0);
+  const account = await get("SELECT value FROM settings WHERE key = 'twilio_account'");
+  if (!call || !call.recording_url) return res.status(404).send('Нет записи');
+  const headers = account && req.env.TWILIO_AUTH_TOKEN ? { authorization: `Basic ${btoa(`${account.value}:${req.env.TWILIO_AUTH_TOKEN}`)}` } : {};
+  const audio = await fetch(`${call.recording_url}.mp3`, { headers });
+  if (!audio.ok) return res.status(502).send(`Twilio не отдал запись (${audio.status})`);
+  res.raw(new Response(audio.body, { headers: { 'content-type': 'audio/mpeg', 'cache-control': 'private, no-store' } }));
 });
 
 calls.post('/clear-error', async (req, res) => {
