@@ -1,6 +1,7 @@
 // Телефония через Twilio. Клиент звонит на торонтовский номер → Twilio спрашивает /twilio/voice, что делать со звонком.
 // CRM записывает номер, показывает уведомление Quant и КЦ и переадресует звонок на телефоны операторов (если они указаны).
 // Из звонка КЦ одной кнопкой начинает заявку с уже подставленным номером.
+// Сюда же попадают заявки с сайтов (форма «Get a free quote»): их присылают сайты через SiteLeads (src/worker.js).
 const { Router } = require('../mini');
 const { get, all, run } = require('../db');
 const { can } = require('../roles');
@@ -13,7 +14,10 @@ const CALL_STATUS = {
   answered: ['Принят', 'green'],
   missed: ['Пропущен — перезвонить', 'red'],
   called_back: ['Перезвонили', 'gray'],
+  site: ['Заявка с сайта — позвонить', 'red'],
 };
+// Звонки и заявки, по которым нужно перезвонить клиенту.
+const CALLBACK = ['missed', 'site'];
 
 // Номера операторов для переадресации хранятся в settings (их меняет Quant на странице «Звонки»).
 async function forwardNumbers() {
@@ -125,6 +129,41 @@ twilio.post('/status', async (req, res) => {
   res.status(204).send('');
 });
 
+// --- Заявка с сайта ---
+
+const clip = (v, n = 200) => String(v || '').trim().slice(0, n);
+
+// lead — поля формы сайта: name, phone, email, address, city, property, service, message, utm_*, gclid, page,
+// site — адрес сайта, site_phone — номер на сайте (по нему находим оператора сайта, см. «Сайты»).
+async function siteLead(req, lead) {
+  const phone = normalizePhone(lead.phone) || clip(lead.phone, 30);
+  if (digits10(phone).length < 10) throw new Error('site lead: phone is missing');
+  const sitePhone = normalizePhone(lead.site_phone);
+  const name = clip(lead.name, 80);
+  const address = [clip(lead.address, 160), clip(lead.city, 60)].filter(Boolean).join(', ');
+  const source = [lead.utm_source, lead.utm_medium, lead.utm_campaign, lead.utm_term].map((v) => clip(v, 80)).filter(Boolean).join(' / ');
+  const note = [
+    lead.service && `Услуга: ${clip(lead.service)}`,
+    lead.property && `Участок: ${clip(lead.property)}`,
+    lead.message && `Комментарий: ${clip(lead.message, 1500)}`,
+    lead.email && `Email: ${clip(lead.email, 120)}`,
+    source && `Реклама: ${source}`,
+    lead.gclid && 'Клик Google Ads',
+  ].filter(Boolean).join('\n');
+  const line = sitePhone ? await lineFor(sitePhone) : null;
+  const client = await ensureClient({ phone, name, address, ownerId: line ? line.user_id : null, firstNumber: sitePhone });
+  const { lastInsertRowid } = await run(`INSERT INTO calls (call_sid, from_number, to_number, status, client_id, source, lead_name, lead_address, note)
+                                         VALUES (?, ?, ?, 'site', ?, ?, ?, ?, ?)`,
+  `site-${crypto.randomUUID()}`, phone, sitePhone, client ? client.id : null, clip(lead.site, 120), name, address, note);
+  await addEvent(req, {
+    status: 'call',
+    title: `🌐 Заявка с сайта ${clip(lead.site, 120)}`.trim(),
+    body: `${name || 'Клиент'} · ${prettyPhone(phone) || phone}${address ? ` · ${address}` : ''}${lead.service ? ` · ${clip(lead.service)}` : ''} · нажмите, чтобы создать заявку`,
+    url: `/orders/new?call=${lastInsertRowid}`,
+  });
+  return { ok: true, id: lastInsertRowid };
+}
+
 // --- Страница «Звонки» для Quant и КЦ ---
 
 const calls = new Router();
@@ -145,6 +184,7 @@ calls.get('/', async (req, res) => {
                           ORDER BY k.id DESC LIMIT 200`);
   const lines = await all('SELECT l.*, u.first_name, u.last_name, u.login, u.phone FROM lines l LEFT JOIN users u ON u.id = l.user_id ORDER BY l.number10');
   const missed = rows.filter((c) => c.status === 'missed').length;
+  const fromSites = rows.filter((c) => c.status === 'site').length;
   const numbers = await forwardNumbers();
   const quant = can.manageCalls(req.user);
   const office = Object.fromEntries((await all("SELECT * FROM users WHERE active = 1 AND role IN ('quant', 'web', 'dispatcher') ORDER BY first_name"))
@@ -155,13 +195,14 @@ ${req.env.TWILIO_AUTH_TOKEN || req.env.SIGNALWIRE_SIGNING_KEY ? '' : html`<p cla
 ${lastError ? html`<p class="notice">Последний отклонённый звонок: ${date(utcToLocal(lastError.value.slice(0, 19)))} — ${lastError.value.slice(20)}
   <form method="post" action="/calls/clear-error" class="inline"><button class="secondary small">Скрыть</button></form></p>` : ''}
 ${missed ? html`<p class="notice">Пропущенных звонков: <b>${missed}</b> — нужно перезвонить.</p>` : ''}
+${fromSites ? html`<p class="notice">Заявок с сайтов ждут звонка: <b>${fromSites}</b>.</p>` : ''}
 ${rows.length ? html`<div class="table-wrap"><table>
 <tr><th>Время</th><th>Номер</th><th>Клиент</th><th>Звонок</th><th>Заявка</th></tr>
 ${rows.map((c) => html`<tr>
   <td class="nowrap">${when(utcToLocal(c.created_at))}</td>
   <td class="nowrap">${prettyPhone(c.from_number) ? html`${phoneLink(prettyPhone(c.from_number))} ${whatsappButton(c.from_number, { small: true })}` : 'скрытый номер'}</td>
   <td>${c.client_id ? html`<a href="/clients/${c.client_id}">${c.client_name || 'Без имени'}</a>${c.client_address ? html`<br><span class="muted small">${c.client_address}</span>` : ''}${c.login ? html`<br><span class="muted small">оператор ${fullName(c)}</span>` : ''}` : html`<span class="muted">—</span>`}</td>
-  <td>${callFlag(c.status)}${c.status === 'missed' ? html`<form method="post" action="/calls/${c.id}/called-back" class="inline"><button class="secondary small">Перезвонили</button></form>` : ''}</td>
+  <td>${callFlag(c.status)}${c.source ? html`<br><span class="muted small">🌐 ${c.source}</span>` : ''}${c.note ? html`<div class="small" style="white-space: pre-line">${c.note}</div>` : ''}${CALLBACK.includes(c.status) ? html`<form method="post" action="/calls/${c.id}/called-back" class="inline"><button class="secondary small">Перезвонили</button></form>` : ''}</td>
   <td class="nowrap">${c.order_id ? html`<a href="/orders/${c.order_id}">№${c.order_id}</a>` : html`<a href="/orders/new?call=${c.id}" class="button small">Создать заявку</a>`}</td>
 </tr>`)}
 </table></div>` : html`<p class="muted">Звонков пока не было.</p>`}
@@ -225,7 +266,7 @@ calls.post('/clear-error', async (req, res) => {
 });
 
 calls.post('/:id/called-back', async (req, res) => {
-  await run("UPDATE calls SET status = 'called_back' WHERE id = ? AND status = 'missed'", req.params.id);
+  await run("UPDATE calls SET status = 'called_back' WHERE id = ? AND status IN ('missed', 'site')", req.params.id);
   res.redirect('/calls');
 });
 
@@ -239,10 +280,12 @@ async function callPrefill(callId) {
     client,
     order: {
       client_phone: prettyPhone(call.from_number),
-      client_name: client ? client.name : '',
-      address: client ? client.address : '',
+      // Заявка с сайта: имя, адрес и пожелания — из формы.
+      client_name: call.lead_name || (client ? client.name : ''),
+      address: call.lead_address || (client ? client.address : ''),
+      task: call.note ? call.note.split('\n').filter((l) => !/^(Email|Реклама|Клик)/.test(l)).join('\n') : undefined,
     },
   };
 }
 
-module.exports = { twilio, calls, callPrefill };
+module.exports = { twilio, calls, callPrefill, siteLead };
