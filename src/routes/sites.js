@@ -136,3 +136,4 @@ r.post('/:id/delete', manageOnly, async (req, res) => {
 module.exports = r;
 module.exports.sitesByUser = sitesByUser;
 module.exports.sitesDropdown = sitesDropdown;
+module.exports.sitesWithStaff = sitesWithStaff;

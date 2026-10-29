@@ -4,11 +4,12 @@
 // Сюда же попадают заявки с сайтов (форма «Get a free quote»): их присылают сайты через SiteLeads (src/worker.js).
 const { Router } = require('../mini');
 const { get, all, run } = require('../db');
-const { can } = require('../roles');
-const { html, whatsappButton, escape, date, utcToLocal, when, phoneLink, fullName, options } = require('../html');
+const { can, is } = require('../roles');
+const { html, raw, whatsappButton, escape, date, utcToLocal, when, phoneLink, fullName, options } = require('../html');
 const { addEvent } = require('../push');
 const { digits10, prettyPhone, normalizePhone, lineFor, ensureClient, backfill } = require('./clients');
 const { importStep, recordingUrl } = require('./openphone');
+const { sitesWithStaff } = require('./sites');
 
 const CALL_STATUS = {
   ringing: ['Звонит', 'blue'],
@@ -223,15 +224,17 @@ const callFlag = (status) => {
 };
 
 // Строка таблицы звонка или заявки с сайта. back — куда вернуться после «Перезвонили».
-const callRow = (c, back = '/calls') => html`<tr>
+// lead — для заявок с сайтов: { siteName, owners, mine } (чей лид — кто ведёт сайт, см. «Сайты»).
+const callRow = (c, back = '/calls', lead = null) => html`<tr class="${lead && lead.mine ? 'mine' : ''}">
   <td class="nowrap">${when(utcToLocal(c.created_at))}</td>
   <td class="nowrap">${prettyPhone(c.from_number) ? html`${phoneLink(prettyPhone(c.from_number))} ${whatsappButton(c.from_number, { small: true })}` : 'скрытый номер'}</td>
   <td>${c.client_id ? html`<a href="/clients/${c.client_id}">${c.client_name || 'Без имени'}</a>${c.client_address ? html`<br><span class="muted small">${c.client_address}</span>` : ''}${c.login ? html`<br><span class="muted small">оператор ${fullName(c)}</span>` : ''}` : html`<span class="muted">—</span>`}</td>
-  <td>${callFlag(c.status)}${c.recording_url || c.status === 'recorded' || (c.call_sid.startsWith('op:') && c.status === 'answered') ? html` <a href="/calls/${c.id}/recording" target="_blank">▶ запись</a>` : ''}${c.transcript ? html`<br><b>${c.transcript}</b>` : c.status === 'recorded' ? html`<br><span class="muted small">расшифровка через 1–2 минуты</span>` : ''}${c.source ? html`<br><span class="muted small">🌐 ${c.source}</span>` : ''}${c.note ? html`<div class="small" style="white-space: pre-line">${c.note}</div>` : ''}${CALLBACK.includes(c.status) ? html`<form method="post" action="/calls/${c.id}/called-back" class="inline"><input type="hidden" name="back" value="${back}"><button class="secondary small">Перезвонили</button></form>` : ''}</td>
+  <td>${lead ? html`<div class="lead-site"><b>🌐 ${lead.siteName}</b>${c.source && c.source !== lead.siteName ? html` <span class="muted small">${c.source}</span>` : ''}${lead.mine ? html` <span class="mine-tag">ваш лид</span>` : ''}<br>
+    <span class="small">Чей лид: ${lead.owners.length ? lead.owners.map(fullName).join(', ') : html`<span class="muted">ничей — сайт не привязан</span>`}</span></div>` : ''}${callFlag(c.status)}${c.recording_url || c.status === 'recorded' || (c.call_sid.startsWith('op:') && c.status === 'answered') ? html` <a href="/calls/${c.id}/recording" target="_blank">▶ запись</a>` : ''}${c.transcript ? html`<br><b>${c.transcript}</b>` : c.status === 'recorded' ? html`<br><span class="muted small">расшифровка через 1–2 минуты</span>` : ''}${c.source && !lead ? html`<br><span class="muted small">🌐 ${c.source}</span>` : ''}${c.note ? html`<div class="small" style="white-space: pre-line">${c.note}</div>` : ''}${CALLBACK.includes(c.status) ? html`<form method="post" action="/calls/${c.id}/called-back" class="inline"><input type="hidden" name="back" value="${back}"><button class="secondary small">Перезвонили</button></form>` : ''}</td>
   <td class="nowrap">${c.order_id ? html`<a href="/orders/${c.order_id}">№${c.order_id}</a>` : html`<a href="/orders/new?call=${c.id}" class="button small">Создать заявку</a>`}</td>
 </tr>`;
 
-const WITH_CLIENT = `SELECT k.*, c.name AS client_name, c.address AS client_address, u.first_name, u.last_name, u.login
+const WITH_CLIENT = `SELECT k.*, c.name AS client_name, c.address AS client_address, c.owner_id, u.first_name, u.last_name, u.login
   FROM calls k LEFT JOIN clients c ON c.id = k.client_id LEFT JOIN users u ON u.id = c.owner_id`;
 
 calls.get('/', async (req, res) => {
@@ -409,19 +412,41 @@ const leads = new Router();
 
 leads.use((req, res, next) => (can.manageOrders(req.user) ? next() : res.denied()));
 
+// Адрес сайта без протокола, www и пути: «https://www.site.com/form» → «site.com».
+const host = (url) => String(url || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split(/[/?#]/)[0];
+
 leads.get('/', async (req, res) => {
   const all_ = req.query.show === 'all';
+  const quant = is(req.user, 'quant');
+  const sites = await sitesWithStaff();
+  const leadInfo = (c) => {
+    const site = sites.find((x) => x.url && host(x.url) === host(c.source)) || sites.find((x) => x.name && x.name.toLowerCase() === String(c.source || '').toLowerCase());
+    // Сайт не найден в «Сайтах» — чей лид определяем по оператору клиента (номер сайта в «Номерах и операторах»).
+    const owners = site ? site.staff : c.client_id && c.login ? [{ id: c.owner_id, first_name: c.first_name, last_name: c.last_name, login: c.login }] : [];
+    return { siteName: site ? site.name : c.source || 'сайт не указан', owners, mine: owners.some((u) => u.id === req.user.id) };
+  };
+  // Quant выбирает, чьи лиды смотреть: все, свои, конкретного сотрудника или ничьи.
+  const who = quant ? String(req.query.who || '') : '';
+  const office = quant ? await all("SELECT id, first_name, last_name, login FROM users WHERE active = 1 AND role IN ('quant', 'web', 'dispatcher') ORDER BY first_name") : [];
+  const keep = (info) => !who || (who === 'none' ? !info.owners.length : info.owners.some((u) => String(u.id) === who));
   const waiting = (await get("SELECT COUNT(*) AS n FROM calls WHERE status = 'site'")).n;
   const total = (await get("SELECT COUNT(*) AS n FROM calls WHERE call_sid LIKE 'site-%'")).n;
-  const rows = await all(`${WITH_CLIENT} WHERE k.call_sid LIKE 'site-%' ${all_ ? '' : "AND k.status = 'site'"} ORDER BY k.id DESC LIMIT 300`);
+  const rows = (await all(`${WITH_CLIENT} WHERE k.call_sid LIKE 'site-%' ${all_ ? '' : "AND k.status = 'site'"} ORDER BY k.id DESC LIMIT 300`))
+    .map((c) => ({ c, info: leadInfo(c) })).filter(({ info }) => keep(info));
+  const mineCount = rows.filter(({ info }) => info.mine).length;
   res.page('Заявки с сайтов', html`
 <div class="toolbar"><div class="fchips">
   <a href="/leads" class="fchip ${all_ ? '' : 'on'}">Ждут звонка <b>${waiting}</b></a>
   <a href="/leads?show=all" class="fchip ${all_ ? 'on' : ''}">Все <b>${total}</b></a>
-</div></div>
+</div>
+${quant ? html`<form method="get" class="search">${all_ ? html`<input type="hidden" name="show" value="all">` : ''}
+  <label>Чьи лиды <select name="who" onchange="this.form.submit()">${[['', 'Все'], ...office.map((u) => [String(u.id), u.id === req.user.id ? `Мои (${fullName(u)})` : fullName(u)]), ['none', 'Ничьи']]
+    .map(([value, label]) => html`<option value="${value}"${value === who ? raw(' selected') : ''}>${label}</option>`)}</select></label>
+</form>` : ''}</div>
+${mineCount && !who ? html`<p class="muted">Ваших лидов здесь: <b>${mineCount}</b> — они подсвечены.</p>` : ''}
 ${rows.length ? html`<div class="table-wrap"><table>
 <tr><th>Время</th><th>Номер</th><th>Клиент</th><th>Заявка с сайта</th><th>Заявка</th></tr>
-${rows.map((c) => callRow(c, '/leads'))}
+${rows.map(({ c, info }) => callRow(c, '/leads', info))}
 </table></div>` : html`<p class="muted">${all_ ? 'Заявок с сайтов пока не было.' : 'Все заявки с сайтов обработаны.'}</p>`}`, { refresh: 30 });
 });
 

@@ -450,3 +450,8 @@ form.search input { min-width: 240px; }
 .board-col.offline { opacity: .8; }
 .top .brand { white-space: nowrap; }
 @media (max-width: 480px) { .top .brand { letter-spacing: 0.12em; font-size: 14px; gap: 8px; } .offline-badge { font-size: 11px; padding: 2px 8px; } }
+
+/* Заявки с сайтов: свои лиды подсвечены */
+tr.mine td { background: #eefbf2; }
+.mine-tag { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--st-green); color: #fff; font-size: 12px; font-weight: 600; }
+.lead-site { margin-bottom: 6px; }
