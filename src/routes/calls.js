@@ -332,6 +332,8 @@ calls.get('/:id/recording', async (req, res) => {
   if (!call) return res.status(404).send('Нет звонка');
   const headers = account && req.env.TWILIO_AUTH_TOKEN ? { authorization: `Basic ${btoa(`${account.value}:${req.env.TWILIO_AUTH_TOKEN}`)}` } : {};
   let url = call.recording_url;
+  // Запись OpenPhone — готовая ссылка, открываем её как есть.
+  if (url && !url.startsWith('https://api.twilio.com')) return res.redirect(url);
   if (!url && account) {
     const list = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${account.value}/Recordings.json?CallSid=${encodeURIComponent(call.call_sid)}`, { headers });
     const found = list.ok ? ((await list.json()).recordings || [])[0] : null;

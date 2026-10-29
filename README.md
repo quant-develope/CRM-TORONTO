@@ -125,3 +125,11 @@ Quant и КЦ получают уведомление «🌐 Заявка с с�
 - **Работал с нами** — есть выполненная заявка. **Закрыл** — кто создал первую выполненную заявку (может быть другой оператор).
 - Менять данные клиента могут Quant и оператор клиента; оператора клиента меняет только Quant.
 - Кнопка **WhatsApp** у клиента, в звонках и в заявке открывает чат с клиентом.
+
+### OpenPhone (Quo)
+
+Звонки и SMS с номеров OpenPhone тоже попадают в «Звонки» (с пометкой «OpenPhone»), клиенты — в базу.
+1. OpenPhone → Settings → Integrations → Webhooks → Create webhook: URL `https://<адрес CRM>/openphone/webhook`,
+   события call.ringing, call.completed, call.recording.completed, call.transcript.completed, message.received.
+2. В webhook → ⋯ → Reveal signing secret → скопировать → Cloudflare → `crm-toronto1` → Variables and Secrets → Secret `OPENPHONE_WEBHOOK_SECRET`.
+3. Номера OpenPhone привязать к операторам в «Звонки» → «Номера и операторы».
