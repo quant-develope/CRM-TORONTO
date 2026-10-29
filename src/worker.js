@@ -1,6 +1,6 @@
 import { Router, Response_, makeRequest } from './mini';
 import { connect, get, run, all, verifyPassword, hashPassword } from './db';
-import { html, layout, brandLogo, installBox, fullName, date, when, utcToLocal, roleTag, statusFlag, todayLocal } from './html';
+import { html, layout, brandLogo, fullName, date, when, utcToLocal, roleTag, statusFlag, todayLocal } from './html';
 import { can, is } from './roles';
 import { driversBoard, boardBlock, ACTIVE_SQL } from './board';
 import orders from './routes/orders';
@@ -52,7 +52,6 @@ function loginPage(error, login = '') {
     <label>Пароль<input name="password" type="password" autocomplete="current-password" required></label>
     <button>Войти</button>
   </form>
-  ${installBox()}
 </div>`,
   }));
 }

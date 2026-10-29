@@ -1,6 +1,8 @@
 const { ROLES, STATUS, can, is } = require('./roles');
 
 const TZ = 'America/Toronto';
+// Меняйте вместе с VERSION в public/sw.js: так браузеры сразу получают новые style.css и app.js.
+const ASSET_VERSION = '3';
 
 class Raw {
   constructor(value) { this.value = value; }
@@ -139,13 +141,12 @@ function menuFor(user) {
   return groups;
 }
 
-// Предложение установить приложение. Показывает /app.js: на Android и компьютере — кнопка, на iPhone — подсказка.
+// Кнопка «Установить приложение» — только на компьютере (Chrome/Edge), показывает /app.js.
 function installBox() {
   return html`<div class="install" data-install>
   <b>Установить приложение</b>
-  <span>Toronto CRM откроется с экрана телефона или с рабочего стола, как обычная программа.</span>
-  <span class="ios">На iPhone: в Safari нажмите «Поделиться» (квадрат со стрелкой) → «На экран „Домой“».</span>
-  <button type="button" class="secondary" data-install-button>Установить</button>
+  <span>Toronto CRM откроется с рабочего стола, как обычная программа.</span>
+    <button type="button" class="secondary" data-install-button>Установить</button>
 </div>`;
 }
 
@@ -173,7 +174,7 @@ ${refresh ? html`<meta http-equiv="refresh" content="${refresh}">` : ''}
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <title>${title} · Toronto CRM</title>
 <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai">
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/style.css?v=${ASSET_VERSION}">
 <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -181,7 +182,7 @@ ${refresh ? html`<meta http-equiv="refresh" content="${refresh}">` : ''}
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Toronto CRM">
-<script src="/app.js" defer></script>
+<script src="/app.js?v=${ASSET_VERSION}" defer></script>
 </head>
 <body>
 ${user ? html`

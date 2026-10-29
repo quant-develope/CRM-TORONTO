@@ -2,18 +2,16 @@
 if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
 
 const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
-const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 let installEvent = null;
 
 function showInstall() {
   if (standalone) return;
   document.querySelectorAll('[data-install]').forEach((box) => {
     box.classList.add('show');
-    box.classList.toggle('ios-only', ios && !installEvent);
   });
 }
 
-// Android и Chrome/Edge на компьютере: браузер сам сообщает, что приложение можно установить.
+// Chrome/Edge на компьютере: браузер сам сообщает, что приложение можно установить.
 addEventListener('beforeinstallprompt', (event) => {
   event.preventDefault();
   installEvent = event;
@@ -22,7 +20,6 @@ addEventListener('beforeinstallprompt', (event) => {
 addEventListener('appinstalled', () => document.querySelectorAll('[data-install]').forEach((box) => box.classList.remove('show')));
 
 document.addEventListener('DOMContentLoaded', () => {
-  if (ios) showInstall(); // Safari не умеет ставить по кнопке — показываем подсказку.
   document.querySelectorAll('[data-install-button]').forEach((button) => button.addEventListener('click', async () => {
     if (!installEvent) return;
     installEvent.prompt();
