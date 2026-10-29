@@ -2,7 +2,7 @@ const { ROLES, STATUS, can, is } = require('./roles');
 
 const TZ = 'America/Toronto';
 // Меняйте вместе с VERSION в public/sw.js: так браузеры сразу получают новые style.css и app.js.
-const ASSET_VERSION = '10';
+const ASSET_VERSION = '11';
 
 class Raw {
   constructor(value) { this.value = value; }
@@ -76,7 +76,10 @@ function when(d) {
 }
 
 function money(n) {
-  return `${Number(n || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} CAD`;
+  // Канадский формат: $1,250 CAD, $12.50 CAD, −$180 CAD.
+  const v = Number(n || 0);
+  const s = Math.abs(v).toLocaleString('en-CA', { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 });
+  return `${v < 0 ? '−' : ''}$${s} CAD`;
 }
 
 function phoneHref(phone) {
