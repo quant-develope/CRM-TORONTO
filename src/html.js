@@ -2,7 +2,7 @@ const { ROLES, STATUS, can, is } = require('./roles');
 
 const TZ = 'America/Toronto';
 // Меняйте вместе с VERSION в public/sw.js: так браузеры сразу получают новые style.css и app.js.
-const ASSET_VERSION = '6';
+const ASSET_VERSION = '7';
 
 class Raw {
   constructor(value) { this.value = value; }

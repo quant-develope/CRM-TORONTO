@@ -107,8 +107,8 @@ async function pushState(box) {
   }
   const reg = await navigator.serviceWorker.ready;
   const sub = await reg.pushManager.getSubscription();
-  // Плашка на главной нужна, только пока уведомления не включены.
-  if (box.dataset.banner !== undefined && (sub || Notification.permission === 'denied')) { box.hidden = true; return; }
+  // Уведомления уже включены — ни плашки, ни кнопки в меню не показываем.
+  if (sub || (box.dataset.banner !== undefined && Notification.permission === 'denied')) { box.hidden = true; return; }
   if (Notification.permission === 'denied') {
     status.textContent = 'Уведомления запрещены в настройках браузера.';
     button.hidden = true;
