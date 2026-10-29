@@ -105,6 +105,17 @@ iPhone: в Safari «Поделиться» → «На экран „Домой�
 В Cloudflare вместо `TWILIO_AUTH_TOKEN` добавьте секрет `SIGNALWIRE_SIGNING_KEY` (API → Signing Key). В настройках номера:
 Handle calls using **LaML Webhooks**, When a call comes in — `https://<адрес CRM>/twilio/voice`, Status change webhook — `https://<адрес CRM>/twilio/status`.
 
+## Заявки с сайтов
+
+Форма «Get a free quote» на сайтах (сейчас — snowman-toronto) дублирует заявку в CRM. Она появляется в меню **«Звонки»**
+со статусом «Заявка с сайта — позвонить», с названием сайта и тем, что клиент написал (услуга, размер участка, комментарий, реклама).
+Quant и КЦ получают уведомление «🌐 Заявка с сайта», нажатие открывает новую заявку с подставленными именем, телефоном, адресом и задачей.
+Клиент заводится в «Клиентах» и закрепляется за тем, кто ведёт сайт с этим номером («Сайты»). После звонка — «Перезвонили» или «Создать заявку».
+
+Сайты передают заявку через service binding к этому Worker (entrypoint `SiteLeads`, метод `siteLead`), а не через открытый адрес,
+поэтому секретов не нужно. В `wrangler.jsonc` сайта:
+`"services": [{ "binding": "CRM", "service": "crm-toronto1", "entrypoint": "SiteLeads" }]`, затем `await env.CRM.siteLead({ name, phone, address, city, service, … , site, site_phone })`.
+
 ## Клиенты
 
 Меню «Клиенты» — база клиентов. Клиент заводится сам: при звонке на номер телефонии или при создании заявки (клиента узнаём по последним 10 цифрам номера).

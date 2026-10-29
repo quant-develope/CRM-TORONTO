@@ -1,3 +1,4 @@
+import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Router, Response_, makeRequest } from './mini';
 import { connect, get, run, all, verifyPassword, hashPassword } from './db';
 import { html, layout, brandLogo, pushBanner, fullName, date, when, utcToLocal, roleTag, statusFlag, todayLocal } from './html';
@@ -9,7 +10,7 @@ import staff from './routes/staff';
 import sites from './routes/sites';
 import report from './routes/report';
 import { eventsFor, lastEventId, vapidKeys } from './push';
-import { twilio, calls } from './routes/calls';
+import { twilio, calls, siteLead } from './routes/calls';
 import { clients } from './routes/clients';
 
 const SESSION_DAYS = 30;
@@ -248,6 +249,21 @@ app.use((req, res) => res.status(404).page('Страница не найдена
 // ИИ-краулеры: сайт закрыт для них (см. также public/robots.txt и X-Robots-Tag).
 const AI_BOTS = /GPTBot|ChatGPT-User|OAI-SearchBot|ClaudeBot|Claude-Web|Claude-User|Claude-SearchBot|anthropic-ai|CCBot|Google-Extended|GoogleOther|Applebot-Extended|PerplexityBot|Perplexity-User|Bytespider|Amazonbot|meta-externalagent|meta-externalfetcher|FacebookBot|cohere-ai|cohere-training-data-crawler|Diffbot|ImagesiftBot|Omgilibot|Omgili|YouBot|AI2Bot|Ai2Bot-Dolma|DuckAssistBot|MistralAI-User|PanguBot|Timpibot|Kangaroo Bot|Webzio-Extended|img2dataset|Scrapy|SemrushBot-OCOB|TikTokSpider|iaskspider|Petalbot/i;
 const NO_AI = 'noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai';
+
+// Заявки с сайтов. Сайты (например snowman-toronto) вызывают этот метод через service binding
+// ("services": [{ "binding": "CRM", "service": "crm-toronto1", "entrypoint": "SiteLeads" }] в их wrangler.jsonc):
+// снаружи, из интернета, он недоступен, поэтому секретов не нужно. Заявка появляется в «Звонках» и в уведомлениях.
+export class SiteLeads extends WorkerEntrypoint {
+  async siteLead(lead) {
+    await connect(this.env);
+    const req = {
+      env: this.env,
+      url: new URL(this.env.CRM_URL || 'https://crm-toronto1.unknwn-creation.workers.dev/'),
+      waitUntil: (job) => this.ctx.waitUntil(job),
+    };
+    return siteLead(req, lead || {});
+  }
+}
 
 export default {
   async fetch(request, env, ctx) {
