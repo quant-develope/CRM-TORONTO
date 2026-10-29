@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "toronto-crm",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./public" },
+  // База Cloudflare D1. Без database_id Cloudflare создаёт базу сама при первом деплое (README, «Где работает»).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "toronto-crm"
+    }
+  ]
+}
