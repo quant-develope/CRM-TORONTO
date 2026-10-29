@@ -55,8 +55,9 @@ const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
 
 // Подпись X-Twilio-Signature: HMAC-SHA1 от полного адреса и всех параметров формы, отсортированных по имени.
 async function validTwilio(req) {
-  const token = req.env.TWILIO_AUTH_TOKEN;
-  const signature = req.headers['x-twilio-signature'];
+  // SignalWire (совместим с Twilio) подписывает так же, своим Signing Key.
+  const token = req.env.TWILIO_AUTH_TOKEN || req.env.SIGNALWIRE_SIGNING_KEY;
+  const signature = req.headers['x-twilio-signature'] || req.headers['x-signalwire-signature'];
   if (!token || !signature) return false;
   const data = req.url.href + Object.keys(req.body).sort().map((k) => k + req.body[k]).join('');
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(token), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
@@ -152,7 +153,7 @@ calls.get('/', async (req, res) => {
   const numbers = await forwardNumbers();
   const quant = can.manageCalls(req.user);
   res.page('Звонки', html`
-${req.env.TWILIO_AUTH_TOKEN ? '' : html`<p class="notice">Телефония ещё не подключена: в Cloudflare нет секрета <b>TWILIO_AUTH_TOKEN</b>. Инструкция — в README, раздел «Телефония».</p>`}
+${req.env.TWILIO_AUTH_TOKEN || req.env.SIGNALWIRE_SIGNING_KEY ? '' : html`<p class="notice">Телефония ещё не подключена: в Cloudflare нет секрета <b>TWILIO_AUTH_TOKEN</b>. Инструкция — в README, раздел «Телефония».</p>`}
 ${missed ? html`<p class="notice">Пропущенных звонков: <b>${missed}</b> — нужно перезвонить.</p>` : ''}
 ${rows.length ? html`<div class="table-wrap"><table>
 <tr><th>Время</th><th>Номер</th><th>Клиент</th><th>Звонок</th><th>Заявка</th></tr>

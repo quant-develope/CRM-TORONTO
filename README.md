@@ -96,3 +96,7 @@ iPhone: в Safari «Поделиться» → «На экран „Домой�
 4. В CRM: «Звонки» → «Переадресация» → телефоны операторов через запятую.
 
 Запросы на `/twilio/*` принимаются только с верной подписью Twilio (X-Twilio-Signature), без секрета они отклоняются.
+
+**SignalWire вместо Twilio** (если у Twilio нет номера): signalwire.com → Phone Numbers → Buy → Canada, 416/647/437.
+В Cloudflare вместо `TWILIO_AUTH_TOKEN` добавьте секрет `SIGNALWIRE_SIGNING_KEY` (API → Signing Key). В настройках номера:
+Handle calls using **LaML Webhooks**, When a call comes in — `https://<адрес CRM>/twilio/voice`, Status change webhook — `https://<адрес CRM>/twilio/status`.
