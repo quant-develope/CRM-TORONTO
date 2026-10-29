@@ -1,9 +1,10 @@
-// Сотрудники. Список с ролями видят Quant и КЦ, добавляет и меняет людей только Quant.
+// Сотрудники. Список с ролями, сайтами и заявками за день видят Quant, Веб и КЦ; добавляет и меняет людей только Quant.
 const { Router } = require('../mini');
 const { get, all, run, hashPassword } = require('../db');
-const { can, ROLES, STAFF_ROLES } = require('../roles');
-const { html, raw, fullName, date, utcToLocal, money, phoneLink, roleTag, options } = require('../html');
+const { can, ROLES, STAFF_ROLES, OFFICE } = require('../roles');
+const { html, raw, fullName, date, todayLocal, utcToLocal, money, phoneLink, roleTag, options } = require('../html');
 const { ACTIVE_SQL } = require('../board');
+const { sitesByUser, sitesDropdown } = require('./sites');
 
 const r = new Router();
 
@@ -14,22 +15,42 @@ r.use((req, res, next) => {
 
 const manageOnly = (req, res, next) => (can.manageStaff(req.user) ? next() : res.denied());
 
+const isDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
+const shiftDay = (d, n) => { const x = new Date(`${d}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+
 r.get('/', async (req, res) => {
+  // День для подсчёта заявок: сегодня или выбранный в календаре.
+  const today = todayLocal();
+  const day = isDay(req.query.day) ? req.query.day : today;
   const rows = await all(`SELECT u.*,
+      (SELECT COUNT(*) FROM orders o WHERE o.created_by = u.id AND substr(o.created_at, 1, 10) = ?) AS day_orders,
       (SELECT COUNT(*) FROM orders o WHERE o.driver_id = u.id AND o.status IN (${ACTIVE_SQL})) AS open_jobs,
-      (SELECT COUNT(*) FROM orders o WHERE o.driver_id = u.id AND o.status = 'done') AS done_jobs
-    FROM users u ORDER BY u.active DESC, CASE u.role WHEN 'quant' THEN 0 WHEN 'web' THEN 1 WHEN 'dispatcher' THEN 2 ELSE 3 END, u.first_name, u.last_name`);
+      (SELECT COUNT(*) FROM orders o WHERE o.driver_id = u.id AND o.status = 'done') AS done_jobs,
+      (SELECT COUNT(*) FROM orders o WHERE o.driver_id = u.id AND o.status = 'done' AND substr(o.done_at, 1, 10) = ?) AS day_done
+    FROM users u ORDER BY u.active DESC, CASE u.role WHEN 'quant' THEN 0 WHEN 'web' THEN 1 WHEN 'dispatcher' THEN 2 ELSE 3 END, u.first_name, u.last_name`, day, day);
+  const sites = await sitesByUser();
+  const dayLabel = day === today ? 'сегодня' : date(day);
   const manage = can.manageStaff(req.user);
   res.page('Сотрудники', html`
-${manage ? html`<div class="toolbar"><span></span><a href="/staff/new" class="button">+ Добавить сотрудника</a></div>` : ''}
-<div class="table-wrap"><table>
-<tr><th>Имя</th><th>Роль</th><th>Телефон</th><th>Логин</th><th>Заявки</th><th></th></tr>
+<div class="toolbar">
+  <form method="get" class="day-nav">
+    <a href="/staff?day=${shiftDay(day, -1)}" class="button secondary" aria-label="Предыдущий день">←</a>
+    <input type="date" name="day" value="${day}" max="${today}" onchange="this.form.submit()" aria-label="День">
+    <a href="/staff?day=${shiftDay(day, 1)}" class="button secondary${day >= today ? ' disabled' : ''}" aria-label="Следующий день">→</a>
+    ${day !== today ? html`<a href="/staff" class="small">Сегодня</a>` : ''}
+  </form>
+  ${manage ? html`<a href="/staff/new" class="button">+ Добавить сотрудника</a>` : ''}
+</div>
+<div class="table-wrap"><table class="staff-table">
+<tr><th>Имя</th><th>Роль</th><th>Телефон</th><th>Логин</th><th>Сайты</th><th>Заявки — ${dayLabel}</th><th>Статус</th><th></th></tr>
 ${rows.map((u) => html`<tr class="${u.active ? '' : 'inactive'}">
   <td>${fullName(u)}${u.active ? '' : html` <span class="muted small">(отключён)</span>`}</td>
-  <td>${roleTag(u.role)}</td>
-  <td>${phoneLink(u.phone)}</td>
-  <td>${u.login}</td>
-  <td>${u.role === 'driver' ? html`${u.open_jobs ? html`<span class="flag flag-orange"><i></i>занят</span>` : html`<span class="flag flag-green"><i></i>свободен</span>`} <span class="muted small">выполнено ${u.done_jobs}</span>` : ''}</td>
+  <td data-label="Роль">${roleTag(u.role)}</td>
+  <td data-label="Телефон" class="nowrap">${phoneLink(u.phone)}</td>
+  <td data-label="Логин">${u.login}</td>
+  <td data-label="Сайты">${OFFICE.includes(u.role) ? sitesDropdown(sites.get(u.id)) : ''}</td>
+  <td data-label="Заявки — ${dayLabel}">${OFFICE.includes(u.role) ? html`<b>${u.day_orders}</b> <span class="muted small">оформлено</span>` : html`<b>${u.day_done}</b> <span class="muted small">выполнено</span>`}</td>
+  <td data-label="Статус">${u.role === 'driver' ? html`${u.open_jobs ? html`<span class="flag flag-orange"><i></i>занят</span>` : html`<span class="flag flag-green"><i></i>свободен</span>`}` : ''}</td>
   <td>${manage && u.role !== 'quant' ? html`<a href="/staff/${u.id}">Изменить</a>` : ''}</td>
 </tr>`)}
 </table></div>`);

@@ -390,3 +390,34 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 form.inline { display: inline-block; margin-left: 8px; vertical-align: middle; }
 .button.small, button.small { min-height: 0; padding: 4px 10px; font-size: 13px; }
 .rtag-web, .role-web { --r-bg: #f5eee3; --r-fg: #7a6340; }
+
+/* Сотрудники: выбор дня и выпадающий список сайтов */
+.day-nav { display: flex; align-items: center; gap: 8px; margin: 0; }
+.day-nav input { width: auto; }
+.day-nav .button { min-width: 44px; padding: 8px 12px; }
+.button.disabled { pointer-events: none; opacity: .35; }
+.dropdown { position: relative; display: inline-block; }
+.dropdown summary { list-style: none; cursor: pointer; }
+.dropdown summary::-webkit-details-marker { display: none; }
+.small-btn { min-height: 34px; padding: 4px 12px; font-size: 13px; gap: 6px; }
+.small-btn b { color: var(--muted); font-weight: 600; }
+.dropdown-list {
+  position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; min-width: 260px; max-width: 360px; margin: 0; padding: 6px 0; list-style: none;
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg);
+}
+.dropdown-list li { display: flex; flex-direction: column; gap: 2px; padding: 8px 14px; border-top: 1px solid var(--line); }
+.dropdown-list li:first-child { border-top: 0; }
+.table-wrap:has(.dropdown[open]) { overflow: visible; }
+@media (max-width: 800px) { .day-nav { width: 100%; } .day-nav input { flex: 1; } .dropdown-list { min-width: 220px; } }
+@media (max-width: 800px) {
+  .table-wrap:has(.staff-table) { overflow: visible; }
+  .staff-table tr:first-child { display: none; }
+  .staff-table tr { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .staff-table tr:last-child { border-bottom: 0; }
+  .staff-table td { border: 0; padding: 0; }
+  .staff-table td:first-child { grid-column: 1 / -1; font-weight: 600; font-size: 16px; }
+  .staff-table td:empty { display: none; }
+  .staff-table td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+  .staff-table tr:hover td { background: none; }
+}
+@media (max-width: 800px) { .staff-table .dropdown-list { left: auto; right: 0; max-width: calc(100vw - 48px); } }

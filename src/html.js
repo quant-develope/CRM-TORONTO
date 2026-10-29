@@ -2,7 +2,7 @@ const { ROLES, STATUS, can, is } = require('./roles');
 
 const TZ = 'America/Toronto';
 // Меняйте вместе с VERSION в public/sw.js: так браузеры сразу получают новые style.css и app.js.
-const ASSET_VERSION = '8';
+const ASSET_VERSION = '9';
 
 class Raw {
   constructor(value) { this.value = value; }
@@ -132,7 +132,7 @@ function menuFor(user) {
     groups.push(['Мои заявки', [['/jobs/done', 'Выполненные заявки']]]);
   }
   if (can.viewStaff(user)) {
-    const links = [['/staff', 'Сотрудники']];
+    const links = [['/staff', 'Сотрудники'], ['/sites', 'Сайты']];
     if (can.manageStaff(user)) links.push(['/staff/new', 'Добавить сотрудника']);
     if (can.viewAuthLog(user)) links.push(['/auth-log', 'Журнал входов']);
     groups.push(['Команда', links]);

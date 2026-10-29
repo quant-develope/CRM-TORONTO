@@ -98,6 +98,22 @@ CREATE TABLE IF NOT EXISTS calls (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Сайты, которые обслуживают Quant, Веб и КЦ. phones — номера через запятую.
+CREATE TABLE IF NOT EXISTS sites (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  url TEXT NOT NULL DEFAULT '',
+  phones TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Кто какой сайт ведёт.
+CREATE TABLE IF NOT EXISTS user_sites (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  site_id INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+  PRIMARY KEY (user_id, site_id)
+);
+
 CREATE INDEX IF NOT EXISTS orders_driver ON orders (driver_id, status);
 CREATE INDEX IF NOT EXISTS orders_status ON orders (status, arrive_at)
 `;

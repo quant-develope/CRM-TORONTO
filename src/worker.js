@@ -6,6 +6,7 @@ import { driversBoard, boardBlock, ACTIVE_SQL } from './board';
 import orders from './routes/orders';
 import jobs, { driverHome } from './routes/jobs';
 import staff from './routes/staff';
+import sites from './routes/sites';
 import report from './routes/report';
 import { eventsFor, lastEventId, vapidKeys } from './push';
 import { twilio, calls } from './routes/calls';
@@ -227,6 +228,7 @@ ${rows.map((r) => html`<tr class="${r.event === 'login' || r.event === 'logout' 
 app.use('/orders', orders);
 app.use('/jobs', jobs);
 app.use('/staff', staff);
+app.use('/sites', sites);
 app.use('/report', report);
 app.use('/calls', calls);
 

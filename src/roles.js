@@ -45,6 +45,7 @@ const can = {
   manageOrders: (u) => is(u, ...OFFICE),
   cancelOrders: (u) => is(u, 'quant', 'dispatcher'),
   manageCalls: (u) => is(u, 'quant', 'web'),
+  manageSites: (u) => is(u, 'quant', 'web'),
   viewAuthLog: (u) => is(u, 'quant', 'web'),
 };
 
