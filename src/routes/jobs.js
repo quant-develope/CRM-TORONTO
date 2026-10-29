@@ -19,13 +19,13 @@ const otherMethod = (o) => (o.pay_method === 'card' ? 'cash' : 'card');
 // Закрытие заявки: как в заявке; другим способом (наличные ↔ трансфер); другая сумма.
 function doneActions(o) {
   const done = (fields, label, cls, confirm) => html`
-  <form method="post" action="/jobs/${o.id}/done" onsubmit="return confirm('${confirm}')">
+  <form method="post" action="/jobs/${o.id}/done"${confirm ? html` onsubmit="return confirm('${confirm}')"` : ''}>
     ${Object.entries(fields).map(([k, v]) => html`<input type="hidden" name="${k}" value="${v}">`)}
     <button class="${cls}">${label}</button>
   </form>`;
   const other = otherMethod(o);
   return html`
-  ${done({ amount: o.price, method: o.pay_method }, 'Закончено, оплачено', 'go', `Работа закончена и клиент заплатил ${money(o.price)} ${PAY_HOW[o.pay_method]}?`)}
+  ${done({ amount: o.price, method: o.pay_method }, o.pay_method === 'card' ? 'Закончено, оплатит трансфером' : 'Закончено, оплачено наличными', 'go')}
   ${done({ amount: o.price, method: other }, other === 'card' ? 'Закончено, клиент платит переводом' : 'Закончено, клиент заплатил наличными', 'secondary',
     `Работа закончена, клиент платит ${money(o.price)} ${PAY_HOW[other]}?`)}
   <details class="other-sum">
