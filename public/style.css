@@ -460,3 +460,7 @@ form.inline-edit input { min-width: 180px; }
 
 .status-form { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin: 16px 0; }
 .status-form label { flex: 1 1 220px; max-width: 320px; }
+.pay-edit { margin: 16px 0; }
+.pay-edit summary { list-style: none; display: inline-flex; cursor: pointer; }
+.pay-edit summary::-webkit-details-marker { display: none; }
+.pay-edit[open] summary { margin-bottom: 12px; }

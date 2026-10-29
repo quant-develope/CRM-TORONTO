@@ -35,7 +35,7 @@ r.get('/', async (req, res) => {
   <a href="/orders/new" class="button">+ Новая заявка</a>
 </div>
 ${rows.length ? html`<div class="table-wrap"><table>
-<tr><th>№</th><th>Приезд</th><th>Клиент</th><th>Адрес</th><th>Водитель</th><th>Клиент платит</th><th>Работнику</th><th>Статус</th></tr>
+<tr><th>№</th><th>Приезд</th><th>Клиент</th><th>Адрес</th><th>Водитель</th><th>Договорённая цена</th><th>Работнику</th><th>Статус</th></tr>
 ${rows.map((o) => html`<tr>
   <td><a href="/orders/${o.id}">№${o.id}</a></td>
   <td class="nowrap">${when(o.arrive_at)}</td>
@@ -83,7 +83,7 @@ async function form(o, { action, submit, callId }) {
     <label>Дата и время (Торонто)<input name="arrive_at" type="datetime-local" value="${localInput(o.arrive_at) || defaultArrive()}" required></label>
 
     <h2 class="wide">Сколько платит клиент</h2>
-    <label>Сумма, $ CAD<input name="price" type="number" min="0" step="0.01" inputmode="decimal" value="${o.price ?? ''}" required></label>
+    <label>Договорённая цена, $ CAD<input name="price" type="number" min="0" step="0.01" inputmode="decimal" value="${o.price ?? ''}" required></label>
     <label>Способ оплаты<select name="pay_method">${options(PAY_METHODS, o.pay_method || 'cash')}</select></label>
 
     <h2 class="wide">Сколько получит работник</h2>
@@ -179,7 +179,7 @@ r.get('/:id', async (req, res) => {
   <dt>Клиент</dt><dd>${o.client_id ? html`<a href="/clients/${o.client_id}">${o.client_name || 'Клиент'}</a>` : o.client_name || '—'} · ${phoneLink(o.client_phone)} ${whatsappButton(o.client_phone, { small: true })}</dd>
   <dt>Адрес</dt><dd>${mapsLink(o.address)}</dd>
   <dt>Приехать</dt><dd>${date(o.arrive_at)}</dd>
-  <dt>Клиент платит</dt><dd>${money(o.price)} · ${PAY_METHODS[o.pay_method]}</dd>
+  <dt>Договорённая цена</dt><dd>${money(o.price)} · ${PAY_METHODS[o.pay_method]}</dd>
   ${o.status === 'done' ? html`<dt>Клиент заплатил</dt><dd class="${paidDiffers(o) ? 'paid-diff' : ''}">${money(paidAmount(o))} · ${PAY_METHODS[paidMethod(o)]}${paidDiffers(o) ? ' — не как в заявке' : ''}</dd>` : ''}
   <dt>Работнику</dt><dd>${money(o.worker_pay)}</dd>
   <dt>Задача</dt><dd class="task-text">${o.task || '—'}</dd>
@@ -187,6 +187,16 @@ r.get('/:id', async (req, res) => {
   <dt>Водитель</dt><dd>${o.driver_id ? html`${fullName(o)} · ${phoneLink(o.driver_phone)}` : '—'}</dd>
   <dt>Создал</dt><dd>${fullName({ first_name: o.c_first, last_name: o.c_last, login: o.c_login })} · ${date(o.created_at)}</dd>
 </dl>
+${o.status === 'done' && can.editPayment(req.user) ? html`
+<details class="pay-edit">
+  <summary class="button secondary">Изменить суммы</summary>
+  <form method="post" action="/orders/${o.id}/payment" class="grid">
+    <label>Клиент заплатил, $ CAD<input name="paid_amount" type="number" min="0" step="0.01" inputmode="decimal" value="${paidAmount(o)}" required></label>
+    <label>Как заплатил<select name="paid_method">${options(PAY_METHODS, paidMethod(o))}</select></label>
+    <label>Работнику, $ CAD<input name="worker_pay" type="number" min="0" step="0.01" inputmode="decimal" value="${o.worker_pay}" required></label>
+    <div class="actions wide"><button>Сохранить</button></div>
+  </form>
+</details>` : ''}
 <h2>Ход выполнения</h2>
 <ol class="steps">${STEPS.map((s) => html`<li class="${o[STEP_AT[s]] ? 'done' : ''}">${STATUS[s][0]}${o[STEP_AT[s]] ? html` — ${date(o[STEP_AT[s]])}` : ''}</li>`)}</ol>
 ${o.status === 'cancelled' ? html`<p class="muted">Отменена ${date(o.cancelled_at)}.</p>` : ''}
@@ -238,6 +248,21 @@ r.post('/:id/cancel', async (req, res) => {
   if (!can.cancelOrders(req.user)) return res.denied();
   await run(`UPDATE orders SET status = 'cancelled', cancelled_at = ? WHERE id = ? AND status IN (${ACTIVE_SQL})`, nowLocal(), req.params.id);
   res.flash('Заявка отменена, водитель свободен.');
+  res.redirect(`/orders/${req.params.id}`);
+});
+
+// Исправить сумму по закрытой заявке: сколько заплатил клиент, как, и сколько получает работник.
+r.post('/:id/payment', async (req, res) => {
+  if (!can.editPayment(req.user)) return res.denied();
+  const amount = Number(req.body.paid_amount);
+  const pay = Number(req.body.worker_pay);
+  if (req.body.paid_amount === '' || req.body.worker_pay === '' || !(amount >= 0) || !(pay >= 0) || !PAY_METHODS[req.body.paid_method]) {
+    res.flash('Укажите суммы числом от 0.');
+    return res.redirect(`/orders/${req.params.id}`);
+  }
+  const { changes } = await run("UPDATE orders SET paid_amount = ?, paid_method = ?, worker_pay = ? WHERE id = ? AND status = 'done'",
+    amount, req.body.paid_method, pay, req.params.id);
+  res.flash(changes ? 'Суммы сохранены.' : 'Суммы меняются только у закрытой заявки.');
   res.redirect(`/orders/${req.params.id}`);
 });
 
