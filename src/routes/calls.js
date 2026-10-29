@@ -285,7 +285,10 @@ ${numbers.length ? '' : 'Сейчас номеров нет — клиенту �
 ${quant ? html`<form method="post" action="/calls/forward" class="grid">
   <label class="wide">Телефоны операторов (через запятую)<input name="numbers" value="${numbers.map(prettyPhone).join(', ')}" placeholder="+1 416 555-0100, +1 647 555-0101" autocomplete="off"></label>
   <div><button>Сохранить</button></div>
-</form>` : html`<p>${numbers.length ? numbers.map(prettyPhone).join(', ') : '—'} <span class="muted small">(меняют Quant и Веб)</span></p>`}`, { refresh: 30 });
+</form>` : html`<p>${numbers.length ? numbers.map(prettyPhone).join(', ') : '—'} <span class="muted small">(меняют Quant и Веб)</span></p>`}
+${can.manageStaff(req.user) ? html`<h2>Очистка</h2>
+<p class="muted">Удаляет все звонки (и заявки с сайтов в этом списке), записи и расшифровки, SMS и базу клиентов. Заявки, сотрудники, сайты и «Номера и операторы» остаются.</p>
+<form method="post" action="/calls/wipe" onsubmit="return confirm('Удалить все звонки, SMS и клиентов? Это нельзя отменить.')"><button class="secondary">Очистить звонки, SMS и клиентов</button></form>` : ''}`, { refresh: 30 });
 });
 
 calls.post('/forward', async (req, res) => {
@@ -346,6 +349,19 @@ calls.get('/:id/recording', async (req, res) => {
   const audio = await fetch(`${url}.mp3`, { headers });
   if (!audio.ok) return res.status(502).send(`Twilio не отдал запись (${audio.status})`);
   res.raw(new Response(audio.body, { headers: { 'content-type': 'audio/mpeg', 'cache-control': 'private, no-store' } }));
+});
+
+// Очистка тестовых данных (только Quant): звонки, SMS, клиенты и уведомления о них. Заявки остаются, просто без клиента.
+calls.post('/wipe', async (req, res) => {
+  if (!can.manageStaff(req.user)) return res.denied();
+  await run('UPDATE orders SET client_id = NULL');
+  await run('DELETE FROM calls');
+  await run('DELETE FROM sms');
+  await run('DELETE FROM clients');
+  await run("DELETE FROM events WHERE status = 'call'");
+  await run("DELETE FROM settings WHERE key = 'call_error'");
+  res.flash('Звонки, записи, SMS и клиенты удалены.');
+  res.redirect('/calls');
 });
 
 calls.post('/clear-error', async (req, res) => {
