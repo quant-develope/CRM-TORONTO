@@ -4,7 +4,7 @@
 const { Router } = require('../mini');
 const { get, all, run } = require('../db');
 const { can } = require('../roles');
-const { html, escape, utcToLocal, when, phoneLink } = require('../html');
+const { html, escape, date, utcToLocal, when, phoneLink } = require('../html');
 const { addEvent } = require('../push');
 
 const CALL_STATUS = {
@@ -54,18 +54,26 @@ const twilio = new Router();
 const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
 
 // Подпись X-Twilio-Signature: HMAC-SHA1 от полного адреса и всех параметров формы, отсортированных по имени.
-async function validTwilio(req) {
-  // SignalWire (совместим с Twilio) подписывает так же, своим Signing Key.
-  const token = req.env.TWILIO_AUTH_TOKEN || req.env.SIGNALWIRE_SIGNING_KEY;
-  const signature = req.headers['x-twilio-signature'] || req.headers['x-signalwire-signature'];
-  if (!token || !signature) return false;
+// SignalWire (совместим с Twilio) подписывает так же, своим Signing Key; заголовок может быть любым из двух.
+// Возвращает пустую строку, если подпись верна, иначе — причину отказа.
+async function signatureCheck(req) {
+  const keys = [req.env.TWILIO_AUTH_TOKEN, req.env.SIGNALWIRE_SIGNING_KEY].filter(Boolean);
+  const signatures = [req.headers['x-twilio-signature'], req.headers['x-signalwire-signature']].filter(Boolean);
+  if (!keys.length) return 'в Cloudflare нет секрета TWILIO_AUTH_TOKEN или SIGNALWIRE_SIGNING_KEY';
+  if (!signatures.length) return 'в запросе нет подписи';
   const data = req.url.href + Object.keys(req.body).sort().map((k) => k + req.body[k]).join('');
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(token), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
-  const expected = b64(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data)));
-  if (expected.length !== signature.length) return false;
-  let diff = 0;
-  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
-  return diff === 0;
+  for (const token of keys) {
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(token), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
+    const expected = b64(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data)));
+    for (const signature of signatures) {
+      if (expected.length !== signature.length) continue;
+      let diff = 0;
+      for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
+      if (diff === 0) return '';
+    }
+  }
+  return `подпись не совпала (секреты: ${[req.env.TWILIO_AUTH_TOKEN && 'TWILIO_AUTH_TOKEN', req.env.SIGNALWIRE_SIGNING_KEY && 'SIGNALWIRE_SIGNING_KEY'].filter(Boolean).join(', ')}; `
+    + `заголовки: ${['x-twilio-signature', 'x-signalwire-signature'].filter((h) => req.headers[h]).join(', ')}; адрес: ${req.url.href})`;
 }
 
 const twiml = (res, body) => {
@@ -73,10 +81,18 @@ const twiml = (res, body) => {
   return res.send(`<?xml version="1.0" encoding="UTF-8"?><Response>${body}</Response>`);
 };
 
-const SAY_BUSY = '<Say voice="Polly.Joanna">Thank you for calling. All our operators are busy right now. We will call you back shortly.</Say><Hangup/>';
+const SAY_BUSY = '<Say voice="woman">Thank you for calling. All our operators are busy right now. We will call you back shortly.</Say><Hangup/>';
 
 twilio.use(async (req, res, next) => {
-  if (req.method !== 'POST' || !(await validTwilio(req))) return res.status(403).send('Forbidden');
+  if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
+  const problem = await signatureCheck(req);
+  if (problem) {
+    // Последний отказ виден на странице «Звонки» — чтобы понять, почему звонок не дошёл.
+    console.error('twilio', problem);
+    await run("INSERT INTO settings (key, value) VALUES ('call_error', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+      `${new Date().toISOString().slice(0, 19).replace('T', ' ')} ${problem}`);
+    return res.status(403).send('Forbidden');
+  }
   next();
 });
 
@@ -152,8 +168,11 @@ calls.get('/', async (req, res) => {
   const missed = rows.filter((c) => c.status === 'missed').length;
   const numbers = await forwardNumbers();
   const quant = can.manageCalls(req.user);
+  const lastError = quant ? await get("SELECT value FROM settings WHERE key = 'call_error'") : null;
   res.page('Звонки', html`
 ${req.env.TWILIO_AUTH_TOKEN || req.env.SIGNALWIRE_SIGNING_KEY ? '' : html`<p class="notice">Телефония ещё не подключена: в Cloudflare нет секрета <b>TWILIO_AUTH_TOKEN</b>. Инструкция — в README, раздел «Телефония».</p>`}
+${lastError ? html`<p class="notice">Последний отклонённый звонок: ${date(utcToLocal(lastError.value.slice(0, 19)))} — ${lastError.value.slice(20)}
+  <form method="post" action="/calls/clear-error" class="inline"><button class="secondary small">Скрыть</button></form></p>` : ''}
 ${missed ? html`<p class="notice">Пропущенных звонков: <b>${missed}</b> — нужно перезвонить.</p>` : ''}
 ${rows.length ? html`<div class="table-wrap"><table>
 <tr><th>Время</th><th>Номер</th><th>Клиент</th><th>Звонок</th><th>Заявка</th></tr>
@@ -183,6 +202,12 @@ calls.post('/forward', async (req, res) => {
   const numbers = String(req.body.numbers || '').split(/[,;\n]+/).map(normalizePhone).filter(Boolean);
   await run("INSERT INTO settings (key, value) VALUES ('call_forward', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", numbers.join(','));
   res.flash(numbers.length ? `Переадресация: ${numbers.map(prettyPhone).join(', ')}.` : 'Переадресация выключена.');
+  res.redirect('/calls');
+});
+
+calls.post('/clear-error', async (req, res) => {
+  if (!can.manageCalls(req.user)) return res.denied();
+  await run("DELETE FROM settings WHERE key = 'call_error'");
   res.redirect('/calls');
 });
 
