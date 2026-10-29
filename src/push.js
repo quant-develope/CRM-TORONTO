@@ -2,7 +2,7 @@
 // Push отправляется без содержимого: телефон просыпается, service worker сам забирает текст события с сайта (/api/events).
 // Так не нужно шифровать сообщения, а ключи VAPID создаются сами и хранятся в базе.
 const { get, all, run } = require('./db');
-const { STATUS, PAY_HOW, paidAmount, paidMethod, paidDiffers } = require('./roles');
+const { OFFICE, STATUS, PAY_HOW, paidAmount, paidMethod, paidDiffers } = require('./roles');
 const { fullName, money } = require('./html');
 
 const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -73,13 +73,13 @@ async function addEvent(req, { orderId = null, status = '', target = null, title
     orderId, status, target, title, body, url);
   await run("DELETE FROM events WHERE created_at < datetime('now', '-7 days')");
   const userIds = target ? [target]
-    : (await all("SELECT id FROM users WHERE role IN ('quant', 'dispatcher') AND active = 1")).map((u) => u.id);
+    : (await all(`SELECT id FROM users WHERE role IN (${OFFICE.map(() => '?').join(', ')}) AND active = 1`, ...OFFICE)).map((u) => u.id);
   req.waitUntil(pushTo(userIds, req.url.origin));
 }
 
 // События, которые видит этот человек: Quant и КЦ — смены статусов, водитель — свои новые заявки.
 function eventsFor(user, after, limit = 20) {
-  const staff = user.role === 'quant' || user.role === 'dispatcher';
+  const staff = OFFICE.includes(user.role);
   return all(`SELECT id, order_id, status, title, body, url, created_at FROM events
               WHERE id > ? AND ${staff ? 'target_user_id IS NULL' : 'target_user_id = ?'} ORDER BY id DESC LIMIT ?`,
   ...[Number(after) || 0, ...(staff ? [] : [user.id]), limit]);

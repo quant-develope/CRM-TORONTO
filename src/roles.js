@@ -1,13 +1,17 @@
 // Роли. Quant — владелец: добавляет людей и видит всё. КЦ (колл-центр) создаёт заявки и назначает водителей.
-// Уборщик снега (водитель) видит только свои заявки. Роли видят только Quant и КЦ.
+// Веб — доступ ко всему, кроме добавления сотрудников и отмены (удаления) заявок.
+// Уборщик снега (водитель) видит только свои заявки. Роли видят только Quant, Веб и КЦ.
 const ROLES = {
   quant: 'Quant',
+  web: 'Веб',
   dispatcher: 'КЦ (оператор)',
   driver: 'Уборщик снега',
 };
 
 // Роли, которые Quant может выдать новому человеку.
-const STAFF_ROLES = { dispatcher: ROLES.dispatcher, driver: ROLES.driver };
+const STAFF_ROLES = { web: ROLES.web, dispatcher: ROLES.dispatcher, driver: ROLES.driver };
+// Кому приходят уведомления о статусах заявок и звонках.
+const OFFICE = ['quant', 'web', 'dispatcher'];
 
 // Этапы заявки по порядку и цвет флажка.
 const STATUS = {
@@ -37,9 +41,11 @@ const is = (user, ...roles) => Boolean(user) && roles.includes(user.role);
 
 const can = {
   manageStaff: (u) => is(u, 'quant'),
-  viewStaff: (u) => is(u, 'quant', 'dispatcher'),
-  manageOrders: (u) => is(u, 'quant', 'dispatcher'),
-  viewAuthLog: (u) => is(u, 'quant'),
+  viewStaff: (u) => is(u, ...OFFICE),
+  manageOrders: (u) => is(u, ...OFFICE),
+  cancelOrders: (u) => is(u, 'quant', 'dispatcher'),
+  manageCalls: (u) => is(u, 'quant', 'web'),
+  viewAuthLog: (u) => is(u, 'quant', 'web'),
 };
 
-module.exports = { ROLES, STAFF_ROLES, STATUS, STEPS, ACTIVE, PAY_METHODS, PAY_HOW, paidAmount, paidMethod, paidDiffers, is, can };
+module.exports = { ROLES, STAFF_ROLES, OFFICE, STATUS, STEPS, ACTIVE, PAY_METHODS, PAY_HOW, paidAmount, paidMethod, paidDiffers, is, can };

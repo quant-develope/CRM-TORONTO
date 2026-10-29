@@ -150,7 +150,7 @@ calls.get('/', async (req, res) => {
   }
   const missed = rows.filter((c) => c.status === 'missed').length;
   const numbers = await forwardNumbers();
-  const quant = can.manageStaff(req.user);
+  const quant = can.manageCalls(req.user);
   res.page('Звонки', html`
 ${req.env.TWILIO_AUTH_TOKEN ? '' : html`<p class="notice">Телефония ещё не подключена: в Cloudflare нет секрета <b>TWILIO_AUTH_TOKEN</b>. Инструкция — в README, раздел «Телефония».</p>`}
 ${missed ? html`<p class="notice">Пропущенных звонков: <b>${missed}</b> — нужно перезвонить.</p>` : ''}
@@ -174,11 +174,11 @@ ${numbers.length ? '' : 'Сейчас номеров нет — клиенту �
 ${quant ? html`<form method="post" action="/calls/forward" class="grid">
   <label class="wide">Телефоны операторов (через запятую)<input name="numbers" value="${numbers.map(prettyPhone).join(', ')}" placeholder="+1 416 555-0100, +1 647 555-0101" autocomplete="off"></label>
   <div><button>Сохранить</button></div>
-</form>` : html`<p>${numbers.length ? numbers.map(prettyPhone).join(', ') : '—'} <span class="muted small">(меняет Quant)</span></p>`}`, { refresh: 30 });
+</form>` : html`<p>${numbers.length ? numbers.map(prettyPhone).join(', ') : '—'} <span class="muted small">(меняют Quant и Веб)</span></p>`}`, { refresh: 30 });
 });
 
 calls.post('/forward', async (req, res) => {
-  if (!can.manageStaff(req.user)) return res.denied();
+  if (!can.manageCalls(req.user)) return res.denied();
   const numbers = String(req.body.numbers || '').split(/[,;\n]+/).map(normalizePhone).filter(Boolean);
   await run("INSERT INTO settings (key, value) VALUES ('call_forward', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", numbers.join(','));
   res.flash(numbers.length ? `Переадресация: ${numbers.map(prettyPhone).join(', ')}.` : 'Переадресация выключена.');

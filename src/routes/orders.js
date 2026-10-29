@@ -186,7 +186,7 @@ ${o.status === 'cancelled' ? html`<p class="muted">Отменена ${date(o.can
 ${open ? html`
 <div class="actions">
   <a href="/orders/${o.id}/edit" class="button">Изменить / переназначить</a>
-  <form method="post" action="/orders/${o.id}/cancel" onsubmit="return confirm('Отменить заявку №${o.id}?')"><button class="secondary">Отменить заявку</button></form>
+  ${can.cancelOrders(req.user) ? html`<form method="post" action="/orders/${o.id}/cancel" onsubmit="return confirm('Отменить заявку №${o.id}?')"><button class="secondary">Отменить заявку</button></form>` : ''}
 </div>` : ''}
 <p><a href="/orders">← Все заявки</a></p>`);
 });
@@ -221,6 +221,7 @@ r.post('/:id/edit', async (req, res) => {
 });
 
 r.post('/:id/cancel', async (req, res) => {
+  if (!can.cancelOrders(req.user)) return res.denied();
   await run(`UPDATE orders SET status = 'cancelled', cancelled_at = ? WHERE id = ? AND status IN (${ACTIVE_SQL})`, nowLocal(), req.params.id);
   res.flash('Заявка отменена, водитель свободен.');
   res.redirect(`/orders/${req.params.id}`);

@@ -18,7 +18,7 @@ r.get('/', async (req, res) => {
   const rows = await all(`SELECT u.*,
       (SELECT COUNT(*) FROM orders o WHERE o.driver_id = u.id AND o.status IN (${ACTIVE_SQL})) AS open_jobs,
       (SELECT COUNT(*) FROM orders o WHERE o.driver_id = u.id AND o.status = 'done') AS done_jobs
-    FROM users u ORDER BY u.active DESC, CASE u.role WHEN 'quant' THEN 0 WHEN 'dispatcher' THEN 1 ELSE 2 END, u.first_name, u.last_name`);
+    FROM users u ORDER BY u.active DESC, CASE u.role WHEN 'quant' THEN 0 WHEN 'web' THEN 1 WHEN 'dispatcher' THEN 2 ELSE 3 END, u.first_name, u.last_name`);
   const manage = can.manageStaff(req.user);
   res.page('Сотрудники', html`
 ${manage ? html`<div class="toolbar"><span></span><a href="/staff/new" class="button">+ Добавить сотрудника</a></div>` : ''}

@@ -389,3 +389,4 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 /* Звонки */
 form.inline { display: inline-block; margin-left: 8px; vertical-align: middle; }
 .button.small, button.small { min-height: 0; padding: 4px 10px; font-size: 13px; }
+.rtag-web, .role-web { --r-bg: #f5eee3; --r-fg: #7a6340; }
