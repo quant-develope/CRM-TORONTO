@@ -139,7 +139,7 @@ function options(list, selected, { empty } = {}) {
 function menuFor(user) {
   const groups = [];
   if (can.manageOrders(user)) {
-    groups.push(['Заявки', [['/orders/new', 'Новая заявка'], ['/orders', 'Все заявки'], ['/clients', 'Клиенты'], ['/calls', 'Звонки'], ['/drivers', 'Свободны / заняты'], ['/report', 'Отчёт']]]);
+    groups.push(['Заявки', [['/orders/new', 'Новая заявка'], ['/orders', 'Все заявки'], ['/leads', 'Заявки с сайтов'], ['/clients', 'Клиенты'], ['/calls', 'Звонки'], ['/drivers', 'Свободны / заняты'], ['/report', 'Отчёт']]]);
   }
   if (is(user, 'driver')) {
     groups.push(['Мои заявки', [['/jobs/done', 'Выполненные заявки']]]);

@@ -222,16 +222,27 @@ const callFlag = (status) => {
   return html`<span class="flag flag-${color}"><i></i>${label}</span>`;
 };
 
+// Строка таблицы звонка или заявки с сайта. back — куда вернуться после «Перезвонили».
+const callRow = (c, back = '/calls') => html`<tr>
+  <td class="nowrap">${when(utcToLocal(c.created_at))}</td>
+  <td class="nowrap">${prettyPhone(c.from_number) ? html`${phoneLink(prettyPhone(c.from_number))} ${whatsappButton(c.from_number, { small: true })}` : 'скрытый номер'}</td>
+  <td>${c.client_id ? html`<a href="/clients/${c.client_id}">${c.client_name || 'Без имени'}</a>${c.client_address ? html`<br><span class="muted small">${c.client_address}</span>` : ''}${c.login ? html`<br><span class="muted small">оператор ${fullName(c)}</span>` : ''}` : html`<span class="muted">—</span>`}</td>
+  <td>${callFlag(c.status)}${c.recording_url || c.status === 'recorded' || (c.call_sid.startsWith('op:') && c.status === 'answered') ? html` <a href="/calls/${c.id}/recording" target="_blank">▶ запись</a>` : ''}${c.transcript ? html`<br><b>${c.transcript}</b>` : c.status === 'recorded' ? html`<br><span class="muted small">расшифровка через 1–2 минуты</span>` : ''}${c.source ? html`<br><span class="muted small">🌐 ${c.source}</span>` : ''}${c.note ? html`<div class="small" style="white-space: pre-line">${c.note}</div>` : ''}${CALLBACK.includes(c.status) ? html`<form method="post" action="/calls/${c.id}/called-back" class="inline"><input type="hidden" name="back" value="${back}"><button class="secondary small">Перезвонили</button></form>` : ''}</td>
+  <td class="nowrap">${c.order_id ? html`<a href="/orders/${c.order_id}">№${c.order_id}</a>` : html`<a href="/orders/new?call=${c.id}" class="button small">Создать заявку</a>`}</td>
+</tr>`;
+
+const WITH_CLIENT = `SELECT k.*, c.name AS client_name, c.address AS client_address, u.first_name, u.last_name, u.login
+  FROM calls k LEFT JOIN clients c ON c.id = k.client_id LEFT JOIN users u ON u.id = c.owner_id`;
+
 calls.get('/', async (req, res) => {
   // Звонок, который «звонит» дольше 3 минут, на самом деле закончился без ответа.
   await run("UPDATE calls SET status = 'missed' WHERE status = 'ringing' AND created_at < datetime('now', '-3 minutes')");
   await backfill();
-  const rows = await all(`SELECT k.*, c.name AS client_name, c.address AS client_address, u.first_name, u.last_name, u.login
-                          FROM calls k LEFT JOIN clients c ON c.id = k.client_id LEFT JOIN users u ON u.id = c.owner_id
-                          ORDER BY k.id DESC LIMIT 200`);
+  // Заявки с сайтов живут в своём разделе «Заявки с сайтов» (/leads).
+  const rows = await all(`${WITH_CLIENT} WHERE k.call_sid NOT LIKE 'site-%' ORDER BY k.id DESC LIMIT 200`);
   const lines = await all('SELECT l.*, u.first_name, u.last_name, u.login, u.phone FROM lines l LEFT JOIN users u ON u.id = l.user_id ORDER BY l.number10');
   const missed = rows.filter((c) => c.status === 'missed').length;
-  const fromSites = rows.filter((c) => c.status === 'site').length;
+  const fromSites = (await get("SELECT COUNT(*) AS n FROM calls WHERE status = 'site'")).n;
   const numbers = await forwardNumbers();
   const quant = can.manageCalls(req.user);
   const office = Object.fromEntries((await all("SELECT * FROM users WHERE active = 1 AND role IN ('quant', 'web', 'dispatcher') ORDER BY first_name"))
@@ -250,20 +261,14 @@ ${sms.length ? html`<h2>SMS</h2><div class="table-wrap"><table>
 <tr><th>Время</th><th>От кого</th><th>Текст</th></tr>
 ${sms.map((m) => html`<tr><td class="nowrap">${when(utcToLocal(m.created_at))}</td><td class="nowrap">${prettyPhone(m.from_number) || m.from_number}</td><td><b>${m.body}</b></td></tr>`)}
 </table></div><h2>Звонки</h2>` : ''}
-${req.env.TWILIO_AUTH_TOKEN || req.env.SIGNALWIRE_SIGNING_KEY ? '' : html`<p class="notice">Телефония ещё не подключена: в Cloudflare нет секрета <b>TWILIO_AUTH_TOKEN</b>. Инструкция — в README, раздел «Телефония».</p>`}
+${req.env.TWILIO_AUTH_TOKEN || req.env.SIGNALWIRE_SIGNING_KEY || req.env.OPENPHONE_WEBHOOK_SECRET ? '' : html`<p class="notice">Телефония ещё не подключена: в Cloudflare нет секрета <b>TWILIO_AUTH_TOKEN</b>. Инструкция — в README, раздел «Телефония».</p>`}
 ${lastError ? html`<p class="notice">Последний отклонённый звонок: ${date(utcToLocal(lastError.value.slice(0, 19)))} — ${lastError.value.slice(20)}
   <form method="post" action="/calls/clear-error" class="inline"><button class="secondary small">Скрыть</button></form></p>` : ''}
 ${missed ? html`<p class="notice">Пропущенных звонков: <b>${missed}</b> — нужно перезвонить.</p>` : ''}
-${fromSites ? html`<p class="notice">Заявок с сайтов ждут звонка: <b>${fromSites}</b>.</p>` : ''}
+${fromSites ? html`<p class="notice">Заявок с сайтов ждут звонка: <b>${fromSites}</b>. <a href="/leads">Открыть «Заявки с сайтов» →</a></p>` : ''}
 ${rows.length ? html`<div class="table-wrap"><table>
 <tr><th>Время</th><th>Номер</th><th>Клиент</th><th>Звонок</th><th>Заявка</th></tr>
-${rows.map((c) => html`<tr>
-  <td class="nowrap">${when(utcToLocal(c.created_at))}</td>
-  <td class="nowrap">${prettyPhone(c.from_number) ? html`${phoneLink(prettyPhone(c.from_number))} ${whatsappButton(c.from_number, { small: true })}` : 'скрытый номер'}</td>
-  <td>${c.client_id ? html`<a href="/clients/${c.client_id}">${c.client_name || 'Без имени'}</a>${c.client_address ? html`<br><span class="muted small">${c.client_address}</span>` : ''}${c.login ? html`<br><span class="muted small">оператор ${fullName(c)}</span>` : ''}` : html`<span class="muted">—</span>`}</td>
-  <td>${callFlag(c.status)}${c.recording_url || c.status === 'recorded' || (c.call_sid.startsWith('op:') && c.status === 'answered') ? html` <a href="/calls/${c.id}/recording" target="_blank">▶ запись</a>` : ''}${c.transcript ? html`<br><b>${c.transcript}</b>` : c.status === 'recorded' ? html`<br><span class="muted small">расшифровка через 1–2 минуты</span>` : ''}${c.source ? html`<br><span class="muted small">🌐 ${c.source}</span>` : ''}${c.note ? html`<div class="small" style="white-space: pre-line">${c.note}</div>` : ''}${CALLBACK.includes(c.status) ? html`<form method="post" action="/calls/${c.id}/called-back" class="inline"><button class="secondary small">Перезвонили</button></form>` : ''}</td>
-  <td class="nowrap">${c.order_id ? html`<a href="/orders/${c.order_id}">№${c.order_id}</a>` : html`<a href="/orders/new?call=${c.id}" class="button small">Создать заявку</a>`}</td>
-</tr>`)}
+${rows.map((c) => callRow(c))}
 </table></div>` : html`<p class="muted">Звонков пока не было.</p>`}
 <h2>Номера и операторы</h2>
 <p class="muted">Клиент, позвонивший на номер оператора, закрепляется за этим оператором, а звонок идёт на его личный телефон (из карточки сотрудника).
@@ -395,7 +400,29 @@ calls.post('/clear-error', async (req, res) => {
 
 calls.post('/:id/called-back', async (req, res) => {
   await run("UPDATE calls SET status = 'called_back' WHERE id = ? AND status IN ('missed', 'site')", req.params.id);
-  res.redirect('/calls');
+  res.redirect(String(req.body.back || '').startsWith('/leads') ? '/leads' : '/calls');
+});
+
+// --- «Заявки с сайтов»: формы с сайтов, по которым нужно позвонить клиенту ---
+
+const leads = new Router();
+
+leads.use((req, res, next) => (can.manageOrders(req.user) ? next() : res.denied()));
+
+leads.get('/', async (req, res) => {
+  const all_ = req.query.show === 'all';
+  const waiting = (await get("SELECT COUNT(*) AS n FROM calls WHERE status = 'site'")).n;
+  const total = (await get("SELECT COUNT(*) AS n FROM calls WHERE call_sid LIKE 'site-%'")).n;
+  const rows = await all(`${WITH_CLIENT} WHERE k.call_sid LIKE 'site-%' ${all_ ? '' : "AND k.status = 'site'"} ORDER BY k.id DESC LIMIT 300`);
+  res.page('Заявки с сайтов', html`
+<div class="toolbar"><div class="fchips">
+  <a href="/leads" class="fchip ${all_ ? '' : 'on'}">Ждут звонка <b>${waiting}</b></a>
+  <a href="/leads?show=all" class="fchip ${all_ ? 'on' : ''}">Все <b>${total}</b></a>
+</div></div>
+${rows.length ? html`<div class="table-wrap"><table>
+<tr><th>Время</th><th>Номер</th><th>Клиент</th><th>Заявка с сайта</th><th>Заявка</th></tr>
+${rows.map((c) => callRow(c, '/leads'))}
+</table></div>` : html`<p class="muted">${all_ ? 'Заявок с сайтов пока не было.' : 'Все заявки с сайтов обработаны.'}</p>`}`, { refresh: 30 });
 });
 
 // Для формы новой заявки: номер звонка и данные клиента из базы.
@@ -416,4 +443,4 @@ async function callPrefill(callId) {
   };
 }
 
-module.exports = { twilio, calls, callPrefill, siteLead };
+module.exports = { twilio, calls, leads, callPrefill, siteLead };

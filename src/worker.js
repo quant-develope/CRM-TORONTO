@@ -10,7 +10,7 @@ import staff from './routes/staff';
 import sites from './routes/sites';
 import report from './routes/report';
 import { eventsFor, lastEventId, vapidKeys } from './push';
-import { twilio, calls, siteLead } from './routes/calls';
+import { twilio, calls, leads, siteLead } from './routes/calls';
 import { openphone } from './routes/openphone';
 import { clients } from './routes/clients';
 
@@ -244,6 +244,7 @@ app.use('/staff', staff);
 app.use('/sites', sites);
 app.use('/report', report);
 app.use('/calls', calls);
+app.use('/leads', leads);
 app.use('/clients', clients);
 
 app.use((req, res) => res.status(404).page('Страница не найдена', html`<p><a href="/">На главную</a></p>`));
