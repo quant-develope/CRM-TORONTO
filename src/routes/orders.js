@@ -83,11 +83,11 @@ async function form(o, { action, submit, callId }) {
     <label>Дата и время (Торонто)<input name="arrive_at" type="datetime-local" value="${localInput(o.arrive_at) || defaultArrive()}" required></label>
 
     <h2 class="wide">Сколько платит клиент</h2>
-    <label>Сумма, $<input name="price" type="number" min="0" step="0.01" inputmode="decimal" value="${o.price ?? ''}" required></label>
+    <label>Сумма, CAD<input name="price" type="number" min="0" step="0.01" inputmode="decimal" value="${o.price ?? ''}" required></label>
     <label>Способ оплаты<select name="pay_method">${options(PAY_METHODS, o.pay_method || 'cash')}</select></label>
 
     <h2 class="wide">Сколько получит работник</h2>
-    <label>Оплата работнику, $<input name="worker_pay" type="number" min="0" step="0.01" inputmode="decimal" value="${o.worker_pay ?? ''}" required></label>
+    <label>Оплата работнику, CAD<input name="worker_pay" type="number" min="0" step="0.01" inputmode="decimal" value="${o.worker_pay ?? ''}" required></label>
 
     <h2 class="wide">Задача</h2>
     <label class="wide">Что сделать<textarea name="task" required placeholder="Почистить подъездную дорожку и тротуар, посыпать солью">${o.task || ''}</textarea></label>

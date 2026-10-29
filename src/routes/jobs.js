@@ -31,7 +31,7 @@ function doneActions(o) {
   <details class="other-sum">
     <summary class="button secondary">Клиент заплатил другую сумму</summary>
     <form method="post" action="/jobs/${o.id}/done" class="other-sum-form">
-      <label>Сколько заплатил клиент, $<input name="amount" type="number" min="0" step="0.01" inputmode="decimal" required></label>
+      <label>Сколько заплатил клиент, CAD<input name="amount" type="number" min="0" step="0.01" inputmode="decimal" required></label>
       <label>Как заплатил<select name="method">${options(PAY_METHODS, o.pay_method)}</select></label>
       <button class="go">Закончено</button>
     </form>

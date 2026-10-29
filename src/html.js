@@ -76,7 +76,7 @@ function when(d) {
 }
 
 function money(n) {
-  return `${Number(n || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} $`;
+  return `${Number(n || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} CAD`;
 }
 
 function phoneHref(phone) {
