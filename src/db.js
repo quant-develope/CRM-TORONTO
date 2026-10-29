@@ -202,6 +202,14 @@ async function init() {
     await run("INSERT INTO users (login, password_hash, role, first_name) VALUES (?, ?, 'quant', 'Quant')", QUANT_LOGIN, QUANT_HASH);
   }
   await migrate();
+  // Один раз: номера Quo (OpenPhone) Quant — Snow Cleaning (365) 360-8470 и (437) 535-2069. Дальше их меняют в «Звонки» → «Номера и операторы».
+  if (!(await get("SELECT 1 AS ok FROM settings WHERE key = 'seed_quant_lines'"))) {
+    for (const number of ['+13653608470', '+14375352069']) {
+      await run(`INSERT INTO lines (number10, number, user_id) SELECT ?, ?, id FROM users WHERE login = ?
+                 ON CONFLICT (number10) DO UPDATE SET user_id = excluded.user_id`, number.slice(-10), number, QUANT_LOGIN);
+    }
+    await run("INSERT OR IGNORE INTO settings (key, value) VALUES ('seed_quant_lines', '1')");
+  }
 }
 
 // Изменения схемы для баз, созданных раньше.
