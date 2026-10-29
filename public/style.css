@@ -428,3 +428,21 @@ form.search input { min-width: 240px; }
 .button.wa:hover { background: #1da851; border-color: #1da851; }
 .button.wa svg { width: 18px; height: 18px; flex: none; }
 .button.wa.small svg { width: 14px; height: 14px; }
+
+/* В сети / не в сети */
+.who-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.online-switch { margin: 0; }
+.switch { flex-direction: row; align-items: center; gap: 8px; cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 600; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch-track { position: relative; width: 40px; height: 24px; border-radius: 999px; background: #c7c7c7; transition: background .2s; flex-shrink: 0; }
+.switch-knob { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); transition: transform .2s var(--ease); }
+.switch input:checked + .switch-track { background: var(--st-green); }
+.switch input:checked + .switch-track .switch-knob { transform: translateX(16px); }
+.switch input:focus-visible + .switch-track { box-shadow: 0 0 0 3px rgba(0, 0, 0, .15); }
+.switch.on .switch-text { color: var(--st-green); }
+.offline-badge { display: none; font-size: 12px; font-weight: 600; color: var(--muted); background: var(--soft); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; text-decoration: none; white-space: nowrap; }
+@media (max-width: 1023px) { .offline-badge { display: inline-block; margin-right: auto; } .top .brand { margin-right: 4px; } }
+@media (max-width: 380px) { .top .brand { letter-spacing: 0.14em; } }
+.board-col.offline { opacity: .8; }
+.top .brand { white-space: nowrap; }
+@media (max-width: 480px) { .top .brand { letter-spacing: 0.12em; font-size: 14px; gap: 8px; } .offline-badge { font-size: 11px; padding: 2px 8px; } }

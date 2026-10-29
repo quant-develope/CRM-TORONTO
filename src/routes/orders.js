@@ -66,7 +66,7 @@ async function form(o, { action, submit, callId }) {
   const board = await driversBoard();
   const { drivers, busy } = board;
   const busyIds = new Set(busy.map((d) => d.id));
-  const driverOptions = Object.fromEntries(drivers.map((d) => [d.id, `${fullName(d)} — ${busyIds.has(d.id) && d.id !== o.driver_id ? 'занят' : 'свободен'}`]));
+  const driverOptions = Object.fromEntries(drivers.map((d) => [d.id, `${fullName(d)} — ${busyIds.has(d.id) && d.id !== o.driver_id ? 'занят' : d.online ? 'свободен' : 'не в сети'}`]));
   return html`
 <div class="with-side">
 <form method="post" action="${action}">

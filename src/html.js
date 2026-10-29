@@ -170,6 +170,19 @@ function pushBanner(text) {
 </div>`;
 }
 
+// Ползунок «В сети»: зелёный — в сети, серый — нет. Переключается сразу, без отдельной кнопки.
+function onlineSwitch(user, path) {
+  return html`<form method="post" action="/online" class="online-switch" id="online">
+  <input type="hidden" name="back" value="${path}">
+  <label class="switch${user.online ? ' on' : ''}">
+    <input type="checkbox" name="online" value="1"${user.online ? raw(' checked') : ''} onchange="this.form.submit()" aria-label="В сети">
+    <span class="switch-track"><span class="switch-knob"></span></span>
+    <span class="switch-text">${user.online ? 'В сети' : 'Не в сети'}</span>
+  </label>
+  <noscript><button class="secondary small-btn">Сохранить</button></noscript>
+</form>`;
+}
+
 function brandLogo() {
   return html`<img src="/logo.svg" alt="" class="brand-logo">`;
 }
@@ -192,7 +205,7 @@ ${refresh ? html`<meta http-equiv="refresh" content="${refresh}">` : ''}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-<title>${title} · Toronto CRM</title>
+<title>Toronto CRM</title>
 <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai">
 <link rel="stylesheet" href="/style.css?v=${ASSET_VERSION}">
 <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
@@ -209,6 +222,7 @@ ${user ? html`
 <input type="checkbox" id="nav-toggle" class="nav-toggle" hidden>
 <header class="top">
   <a href="/" class="brand">${brandLogo()}TORONTO CRM</a>
+  ${user.online ? '' : html`<a href="#online" class="offline-badge" onclick="document.getElementById('nav-toggle').checked = true; return false;">вы не в сети</a>`}
   <label for="nav-toggle" class="burger" aria-label="Меню"><span></span><span></span><span></span></label>
 </header>
 <label for="nav-toggle" class="scrim" aria-hidden="true"></label>
@@ -216,7 +230,10 @@ ${user ? html`
   <div class="drawer-head">
     <div class="who">
       <div class="who-name">${fullName(user)}</div>
-      ${can.viewStaff(user) ? html`<span class="role role-${user.role}">${ROLES[user.role]}</span>` : ''}
+      <div class="who-line">
+        ${can.viewStaff(user) ? html`<span class="role role-${user.role}">${ROLES[user.role]}</span>` : ''}
+        ${onlineSwitch(user, path)}
+      </div>
     </div>
     <label for="nav-toggle" class="close" aria-label="Закрыть"></label>
   </div>

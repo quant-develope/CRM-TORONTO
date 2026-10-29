@@ -152,6 +152,15 @@ app.get('/drivers', async (req, res) => {
   res.page('Свободны / заняты', boardBlock(await driversBoard()), { refresh: 30 });
 });
 
+// В сети / не в сети — ползунок в меню.
+app.post('/online', async (req, res) => {
+  const online = req.body.online === '1' ? 1 : 0;
+  await run('UPDATE users SET online = ? WHERE id = ?', online, req.user.id);
+  res.flash(online ? 'Вы в сети.' : 'Вы не в сети.');
+  const back = String(req.body.back || '/');
+  res.redirect(back.startsWith('/') && !back.startsWith('//') ? back : '/');
+});
+
 // Смена своего пароля — для всех.
 app.get('/account', (req, res) => {
   res.page('Мой пароль', html`

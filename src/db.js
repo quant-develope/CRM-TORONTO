@@ -194,6 +194,9 @@ async function init() {
 
 // Изменения схемы для баз, созданных раньше.
 async function migrate() {
+  // В сети / не в сети: сотрудник сам переключает ползунок в меню.
+  const userColumns = (await all('PRAGMA table_info(users)')).map((c) => c.name);
+  if (!userColumns.includes('online')) await run('ALTER TABLE users ADD COLUMN online INTEGER NOT NULL DEFAULT 0');
   // Сколько и как клиент заплатил на самом деле (водитель отмечает при закрытии заявки).
   const orderColumns = (await all('PRAGMA table_info(orders)')).map((c) => c.name);
   if (!orderColumns.includes('paid_amount')) await run('ALTER TABLE orders ADD COLUMN paid_amount REAL');

@@ -50,7 +50,7 @@ ${rows.map((u) => html`<tr class="${u.active ? '' : 'inactive'}">
   <td data-label="Логин">${u.login}</td>
   <td data-label="Сайты">${OFFICE.includes(u.role) ? sitesDropdown(sites.get(u.id)) : ''}</td>
   <td data-label="Заявки — ${dayLabel}">${OFFICE.includes(u.role) ? html`<b>${u.day_orders}</b> <span class="muted small">оформлено</span>` : html`<b>${u.day_done}</b> <span class="muted small">выполнено</span>`}</td>
-  <td data-label="Статус">${u.role === 'driver' ? html`${u.open_jobs ? html`<span class="flag flag-orange"><i></i>занят</span>` : html`<span class="flag flag-green"><i></i>свободен</span>`}` : ''}</td>
+  <td data-label="Статус">${u.role === 'driver' && u.open_jobs ? html`<span class="flag flag-orange"><i></i>занят</span>` : u.online ? html`<span class="flag flag-green"><i></i>${u.role === 'driver' ? 'свободен' : 'в сети'}</span>` : html`<span class="flag flag-gray"><i></i>не в сети</span>`}</td>
   <td>${manage && u.role !== 'quant' ? html`<a href="/staff/${u.id}">Изменить</a>` : ''}</td>
 </tr>`)}
 </table></div>`);

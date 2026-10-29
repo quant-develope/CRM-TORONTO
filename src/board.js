@@ -14,12 +14,14 @@ async function driversBoard() {
     if (!byDriver.has(j.driver_id)) byDriver.set(j.driver_id, []);
     byDriver.get(j.driver_id).push(j);
   }
-  const free = drivers.filter((d) => !byDriver.has(d.id));
+  // Свободен — в сети и без заявок; не в сети и без заявок — отдельный список.
+  const free = drivers.filter((d) => !byDriver.has(d.id) && d.online);
+  const offline = drivers.filter((d) => !byDriver.has(d.id) && !d.online);
   const busy = drivers.filter((d) => byDriver.has(d.id)).map((d) => ({ ...d, jobs: byDriver.get(d.id) }));
-  return { drivers, free, busy };
+  return { drivers, free, busy, offline };
 }
 
-function boardBlock({ free, busy }, { compact = false } = {}) {
+function boardBlock({ free, busy, offline = [] }, { compact = false } = {}) {
   return html`
 <div class="board${compact ? ' compact' : ''}">
   <section class="board-col">
@@ -33,6 +35,10 @@ function boardBlock({ free, busy }, { compact = false } = {}) {
       ${d.jobs.map((j) => html`<span><a href="/orders/${j.id}">№${j.id}</a> · ${when(j.arrive_at)} · ${statusFlag(j.status)}<br><span class="muted small">${j.address}</span></span>`)}</li>`)}</ul>`
     : html`<p class="empty">Все свободны</p>`}
   </section>
+  ${offline.length ? html`<section class="board-col offline">
+    <h2><span class="dot dot-gray"></span>Не в сети <b>${offline.length}</b></h2>
+    <ul>${offline.map((d) => html`<li><b>${fullName(d)}</b><span class="muted small">${phoneLink(d.phone)}</span></li>`)}</ul>
+  </section>` : ''}
 </div>`;
 }
 
