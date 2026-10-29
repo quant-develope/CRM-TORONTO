@@ -86,6 +86,18 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL DEFAULT ''
 );
 
+-- Входящие звонки на номер Twilio. status: ringing — звонит, answered — оператор ответил, missed — никто не ответил (перезвонить).
+-- order_id — заявка, созданная по этому звонку.
+CREATE TABLE IF NOT EXISTS calls (
+  id INTEGER PRIMARY KEY,
+  call_sid TEXT NOT NULL UNIQUE,
+  from_number TEXT NOT NULL DEFAULT '',
+  to_number TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'ringing',
+  order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS orders_driver ON orders (driver_id, status);
 CREATE INDEX IF NOT EXISTS orders_status ON orders (status, arrive_at)
 `;

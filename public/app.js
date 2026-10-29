@@ -67,8 +67,10 @@ function toast(e) {
   close.addEventListener('click', (ev) => { ev.preventDefault(); a.remove(); });
   a.append(title, body, close);
   box.prepend(a);
-  setTimeout(() => a.classList.add('hide'), 12000);
-  setTimeout(() => a.remove(), 12600);
+  // Звонок висит дольше: оператор успевает нажать и начать заявку.
+  const ms = e.status === 'call' ? 45000 : 12000;
+  setTimeout(() => a.classList.add('hide'), ms);
+  setTimeout(() => a.remove(), ms + 600);
 }
 
 async function pollEvents() {

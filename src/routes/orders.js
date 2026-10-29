@@ -5,6 +5,7 @@ const { can, STATUS, STEPS, ACTIVE, PAY_METHODS, PAY_HOW, paidAmount, paidMethod
 const { html, raw, fullName, date, when, nowLocal, money, phoneLink, mapsLink, statusFlag, options } = require('../html');
 const { driversBoard, boardBlock, ACTIVE_SQL } = require('../board');
 const { notify } = require('../push');
+const { callPrefill } = require('./calls');
 
 const r = new Router();
 
@@ -60,7 +61,7 @@ function defaultArrive() {
   return day.toISOString().slice(0, 16);
 }
 
-async function form(o, { action, submit }) {
+async function form(o, { action, submit, callId }) {
   const board = await driversBoard();
   const { drivers, busy } = board;
   const busyIds = new Set(busy.map((d) => d.id));
@@ -68,6 +69,7 @@ async function form(o, { action, submit }) {
   return html`
 <div class="with-side">
 <form method="post" action="${action}">
+  ${callId ? html`<input type="hidden" name="call_id" value="${callId}">` : ''}
   <div class="grid">
     <h2 class="wide">Клиент</h2>
     <label>Имя клиента<input name="client_name" value="${o.client_name || ''}" required autocomplete="off"></label>
@@ -124,15 +126,22 @@ async function readForm(body) {
   return { o, error };
 }
 
+// ?call=ID — заявка по входящему звонку: номер уже подставлен, имя и адрес — из прошлой заявки этого клиента.
 r.get('/new', async (req, res) => {
-  res.page('Новая заявка', await form({ driver_id: Number(req.query.driver) || null }, { action: '/orders', submit: 'Создать и назначить' }));
+  const fromCall = req.query.call ? await callPrefill(req.query.call) : null;
+  const o = { ...(fromCall ? fromCall.order : {}), driver_id: Number(req.query.driver) || null };
+  const callId = fromCall ? fromCall.call.id : null;
+  res.page('Новая заявка', html`
+${fromCall && fromCall.call.order_id ? html`<p class="notice">По этому звонку уже есть <a href="/orders/${fromCall.call.order_id}">заявка №${fromCall.call.order_id}</a>.</p>` : ''}
+${fromCall && o.address ? html`<p class="notice">Звонит постоянный клиент: имя и адрес взяты из его прошлой заявки — проверьте.</p>` : ''}
+${await form(o, { action: '/orders', submit: 'Создать и назначить', callId })}`);
 });
 
 r.post('/', async (req, res) => {
   const { o, error } = await readForm(req.body);
   if (error) {
     res.flash(error);
-    return res.status(400).page('Новая заявка', await form(o, { action: '/orders', submit: 'Создать и назначить' }));
+    return res.status(400).page('Новая заявка', await form(o, { action: '/orders', submit: 'Создать и назначить', callId: Number(req.body.call_id) || null }));
   }
   const now = nowLocal();
   const { lastInsertRowid } = await run(
@@ -141,6 +150,7 @@ r.post('/', async (req, res) => {
     o.client_name, o.client_phone, o.address, o.arrive_at, o.price, o.pay_method, o.worker_pay, o.task, o.notify_client, o.driver_id,
     req.user.id, now, now,
   );
+  if (Number(req.body.call_id)) await run('UPDATE calls SET order_id = ? WHERE id = ? AND order_id IS NULL', lastInsertRowid, Number(req.body.call_id));
   await notify(req, { order: await get('SELECT * FROM orders WHERE id = ?', lastInsertRowid), status: 'assigned', target: o.driver_id });
   res.flash(`Заявка №${lastInsertRowid} создана и назначена водителю.`);
   res.redirect(`/orders/${lastInsertRowid}`);

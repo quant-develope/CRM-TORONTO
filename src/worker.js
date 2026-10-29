@@ -8,6 +8,7 @@ import jobs, { driverHome } from './routes/jobs';
 import staff from './routes/staff';
 import report from './routes/report';
 import { eventsFor, lastEventId, vapidKeys } from './push';
+import { twilio, calls } from './routes/calls';
 
 const SESSION_DAYS = 30;
 const COOKIE = 'toronto_session';
@@ -101,6 +102,9 @@ app.post('/logout', async (req, res) => {
   res.clearCookie(COOKIE);
   res.redirect('/login');
 });
+
+// Twilio сообщает о входящих звонках без входа в CRM (запросы проверяются по подписи).
+app.use('/twilio', twilio);
 
 // Всё остальное только для вошедших.
 app.use((req, res, next) => {
@@ -224,6 +228,7 @@ app.use('/orders', orders);
 app.use('/jobs', jobs);
 app.use('/staff', staff);
 app.use('/report', report);
+app.use('/calls', calls);
 
 app.use((req, res) => res.status(404).page('Страница не найдена', html`<p><a href="/">На главную</a></p>`));
 
@@ -242,6 +247,7 @@ export default {
       await connect(env);
       const req = await makeRequest(request);
       req.waitUntil = (job) => ctx.waitUntil(job);
+      req.env = env;
       await app.handle(req, res);
       if (res.flashMessage && res.statusCode === 302) res.cookie(FLASH, res.flashMessage, { maxAge: 60e3, secure: req.secure });
       return res.toResponse();

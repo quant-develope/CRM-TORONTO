@@ -2,7 +2,7 @@ const { ROLES, STATUS, can, is } = require('./roles');
 
 const TZ = 'America/Toronto';
 // Меняйте вместе с VERSION в public/sw.js: так браузеры сразу получают новые style.css и app.js.
-const ASSET_VERSION = '7';
+const ASSET_VERSION = '8';
 
 class Raw {
   constructor(value) { this.value = value; }
@@ -126,7 +126,7 @@ function options(list, selected, { empty } = {}) {
 function menuFor(user) {
   const groups = [];
   if (can.manageOrders(user)) {
-    groups.push(['Заявки', [['/orders/new', 'Новая заявка'], ['/orders', 'Все заявки'], ['/drivers', 'Свободны / заняты'], ['/report', 'Отчёт']]]);
+    groups.push(['Заявки', [['/orders/new', 'Новая заявка'], ['/orders', 'Все заявки'], ['/calls', 'Звонки'], ['/drivers', 'Свободны / заняты'], ['/report', 'Отчёт']]]);
   }
   if (is(user, 'driver')) {
     groups.push(['Мои заявки', [['/jobs/done', 'Выполненные заявки']]]);

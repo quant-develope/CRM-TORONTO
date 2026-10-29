@@ -64,8 +64,13 @@ async function notify(req, { order, status, target = null }) {
     ? `${order.arrive_at ? `${order.arrive_at.slice(11, 16)} · ` : ''}${order.address}`
     : `Заявка №${order.id} · ${order.address}${status === 'done' ? ` · ${money(paidAmount(order))} ${PAY_HOW[paidMethod(order)]}${paidDiffers(order) ? ` (в заявке ${money(order.price)} ${PAY_HOW[order.pay_method]})` : ''}` : ''}`;
   const url = target ? `/jobs/${order.id}` : `/orders/${order.id}`;
+  await addEvent(req, { orderId: order.id, status, target, title, body, url });
+}
+
+// Записать событие и разбудить телефоны. target — один человек или null — все Quant и КЦ.
+async function addEvent(req, { orderId = null, status = '', target = null, title, body = '', url = '/' }) {
   await run('INSERT INTO events (order_id, status, target_user_id, title, body, url) VALUES (?, ?, ?, ?, ?, ?)',
-    order.id, status, target, title, body, url);
+    orderId, status, target, title, body, url);
   await run("DELETE FROM events WHERE created_at < datetime('now', '-7 days')");
   const userIds = target ? [target]
     : (await all("SELECT id FROM users WHERE role IN ('quant', 'dispatcher') AND active = 1")).map((u) => u.id);
@@ -85,4 +90,4 @@ async function lastEventId(user) {
   return last ? last.id : 0;
 }
 
-module.exports = { notify, eventsFor, lastEventId, vapidKeys };
+module.exports = { notify, addEvent, eventsFor, lastEventId, vapidKeys };
