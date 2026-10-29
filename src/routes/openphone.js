@@ -117,4 +117,74 @@ r.post('/webhook', async (req, res) => {
   res.status(204).send('');
 });
 
-module.exports = r;
+// --- Загрузка прошлых звонков через API Quo (ключ — секрет QUO_API_KEY) ---
+
+const QUO_API = 'https://api.quo.com/v1';
+// Cloudflare ограничивает число запросов за один вызов, поэтому история грузится порциями: Quant нажимает кнопку, пока не загрузится всё.
+const BUDGET = 40;
+
+async function quo(env, path) {
+  const response = await fetch(`${QUO_API}${path}`, { headers: { authorization: env.QUO_API_KEY } });
+  if (!response.ok) throw new Error(`Quo API ${response.status} на ${path.split('?')[0]}`);
+  return response.json();
+}
+
+const sqlTime = (iso) => String(iso || '').replace('T', ' ').slice(0, 19);
+
+// Звонок из API: participants — номер клиента, phoneNumberId — наш номер Quo.
+async function saveHistoryCall(c, ourNumber) {
+  const sid = `op:${c.id}`;
+  if (await get('SELECT id FROM calls WHERE call_sid = ?', sid)) return false;
+  const clientPhone = String((c.participants || [])[0] || '');
+  const line = await lineFor(ourNumber);
+  const outgoing = c.direction === 'outgoing';
+  const client = await ensureClient({ phone: clientPhone, ownerId: line ? line.user_id : null, firstNumber: outgoing ? '' : ourNumber });
+  const answered = ['completed', 'answered'].includes(c.status) && Number(c.duration) > 0;
+  await run(`INSERT OR IGNORE INTO calls (call_sid, from_number, to_number, status, client_id, source, note, created_at)
+             VALUES (?, ?, ?, ?, ?, 'OpenPhone', ?, ?)`, sid, clientPhone, ourNumber, answered || outgoing ? 'answered' : 'missed_old',
+  client ? client.id : null, outgoing ? 'Исходящий' : '', sqlTime(c.createdAt) || sqlTime(new Date().toISOString()));
+  return true;
+}
+
+// Одна порция загрузки. Состояние (номера Quo, текущий номер, страница) хранится в settings.quo_import.
+async function importStep(env) {
+  if (!env.QUO_API_KEY) throw new Error('в Cloudflare нет секрета QUO_API_KEY');
+  const row = await get("SELECT value FROM settings WHERE key = 'quo_import'");
+  let state = row ? JSON.parse(row.value) : null;
+  let budget = BUDGET;
+  let added = 0;
+  if (!state || state.done) {
+    const numbers = (await quo(env, '/phone-numbers')).data || [];
+    budget--;
+    state = { numbers: numbers.map((n) => ({ id: n.id, number: n.number || n.formattedNumber || '' })), i: 0, token: null, done: false };
+  }
+  while (budget > 1 && state.i < state.numbers.length) {
+    const pn = state.numbers[state.i];
+    const page = await quo(env, `/conversations?phoneNumbers=${encodeURIComponent(pn.id)}&maxResults=20${state.token ? `&pageToken=${encodeURIComponent(state.token)}` : ''}`);
+    budget--;
+    const conversations = page.data || [];
+    // Если на всю страницу не хватит запросов — продолжим с неё же в следующий раз.
+    if (conversations.length > budget) { budget = 0; break; }
+    for (const conv of conversations) {
+      const participant = (conv.participants || [])[0];
+      if (!participant) continue;
+      const calls = await quo(env, `/calls?phoneNumberId=${encodeURIComponent(pn.id)}&participants=${encodeURIComponent(participant)}&maxResults=100`);
+      budget--;
+      for (const c of calls.data || []) if (await saveHistoryCall(c, pn.number)) added++;
+    }
+    state.token = page.nextPageToken || null;
+    if (!state.token) state.i++;
+  }
+  state.done = state.i >= state.numbers.length;
+  await run("INSERT INTO settings (key, value) VALUES ('quo_import', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify(state));
+  return { added, done: state.done };
+}
+
+// Запись звонка Quo по запросу: ссылка из API (если webhook её не прислал).
+async function recordingUrl(env, callSid) {
+  if (!env.QUO_API_KEY || !callSid.startsWith('op:')) return '';
+  const data = (await quo(env, `/call-recordings/${encodeURIComponent(callSid.slice(3))}`)).data || [];
+  return (data[0] && data[0].url) || '';
+}
+
+module.exports = { openphone: r, importStep, recordingUrl };

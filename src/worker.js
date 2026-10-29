@@ -11,7 +11,7 @@ import sites from './routes/sites';
 import report from './routes/report';
 import { eventsFor, lastEventId, vapidKeys } from './push';
 import { twilio, calls, siteLead } from './routes/calls';
-import openphone from './routes/openphone';
+import { openphone } from './routes/openphone';
 import { clients } from './routes/clients';
 
 const SESSION_DAYS = 30;

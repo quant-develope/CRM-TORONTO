@@ -133,3 +133,5 @@ Quant и КЦ получают уведомление «🌐 Заявка с с�
    события call.ringing, call.completed, call.recording.completed, call.transcript.completed, message.received.
 2. В webhook → ⋯ → Reveal signing secret → скопировать → Cloudflare → `crm-toronto1` → Variables and Secrets → Secret `OPENPHONE_WEBHOOK_SECRET`.
 3. Номера OpenPhone привязать к операторам в «Звонки» → «Номера и операторы».
+4. Прошлые звонки: Quo → Settings → API → ключ → Cloudflare Secret `QUO_API_KEY`, затем «Звонки» → «Загрузить звонки из Quo»
+   (порциями, нажимать до «Загружено всё»). С этим ключом «▶ запись» сама находит запись звонка в Quo.

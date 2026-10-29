@@ -8,6 +8,7 @@ const { can } = require('../roles');
 const { html, whatsappButton, escape, date, utcToLocal, when, phoneLink, fullName, options } = require('../html');
 const { addEvent } = require('../push');
 const { digits10, prettyPhone, normalizePhone, lineFor, ensureClient, backfill } = require('./clients');
+const { importStep, recordingUrl } = require('./openphone');
 
 const CALL_STATUS = {
   ringing: ['Звонит', 'blue'],
@@ -15,6 +16,7 @@ const CALL_STATUS = {
   missed: ['Пропущен — перезвонить', 'red'],
   recorded: ['Записан (код)', 'orange'],
   called_back: ['Перезвонили', 'gray'],
+  missed_old: ['Пропущен (архив Quo)', 'gray'],
   site: ['Заявка с сайта — позвонить', 'red'],
 };
 // Звонки и заявки, по которым нужно перезвонить клиенту.
@@ -259,7 +261,7 @@ ${rows.map((c) => html`<tr>
   <td class="nowrap">${when(utcToLocal(c.created_at))}</td>
   <td class="nowrap">${prettyPhone(c.from_number) ? html`${phoneLink(prettyPhone(c.from_number))} ${whatsappButton(c.from_number, { small: true })}` : 'скрытый номер'}</td>
   <td>${c.client_id ? html`<a href="/clients/${c.client_id}">${c.client_name || 'Без имени'}</a>${c.client_address ? html`<br><span class="muted small">${c.client_address}</span>` : ''}${c.login ? html`<br><span class="muted small">оператор ${fullName(c)}</span>` : ''}` : html`<span class="muted">—</span>`}</td>
-  <td>${callFlag(c.status)}${c.recording_url || c.status === 'recorded' ? html` <a href="/calls/${c.id}/recording" target="_blank">▶ запись</a>` : ''}${c.transcript ? html`<br><b>${c.transcript}</b>` : c.status === 'recorded' ? html`<br><span class="muted small">расшифровка через 1–2 минуты</span>` : ''}${c.source ? html`<br><span class="muted small">🌐 ${c.source}</span>` : ''}${c.note ? html`<div class="small" style="white-space: pre-line">${c.note}</div>` : ''}${CALLBACK.includes(c.status) ? html`<form method="post" action="/calls/${c.id}/called-back" class="inline"><button class="secondary small">Перезвонили</button></form>` : ''}</td>
+  <td>${callFlag(c.status)}${c.recording_url || c.status === 'recorded' || (c.call_sid.startsWith('op:') && c.status === 'answered') ? html` <a href="/calls/${c.id}/recording" target="_blank">▶ запись</a>` : ''}${c.transcript ? html`<br><b>${c.transcript}</b>` : c.status === 'recorded' ? html`<br><span class="muted small">расшифровка через 1–2 минуты</span>` : ''}${c.source ? html`<br><span class="muted small">🌐 ${c.source}</span>` : ''}${c.note ? html`<div class="small" style="white-space: pre-line">${c.note}</div>` : ''}${CALLBACK.includes(c.status) ? html`<form method="post" action="/calls/${c.id}/called-back" class="inline"><button class="secondary small">Перезвонили</button></form>` : ''}</td>
   <td class="nowrap">${c.order_id ? html`<a href="/orders/${c.order_id}">№${c.order_id}</a>` : html`<a href="/orders/new?call=${c.id}" class="button small">Создать заявку</a>`}</td>
 </tr>`)}
 </table></div>` : html`<p class="muted">Звонков пока не было.</p>`}
@@ -286,6 +288,10 @@ ${quant ? html`<form method="post" action="/calls/forward" class="grid">
   <label class="wide">Телефоны операторов (через запятую)<input name="numbers" value="${numbers.map(prettyPhone).join(', ')}" placeholder="+1 416 555-0100, +1 647 555-0101" autocomplete="off"></label>
   <div><button>Сохранить</button></div>
 </form>` : html`<p>${numbers.length ? numbers.map(prettyPhone).join(', ') : '—'} <span class="muted small">(меняют Quant и Веб)</span></p>`}
+${quant ? html`<h2>Звонки из Quo (OpenPhone)</h2>
+${req.env.QUO_API_KEY ? html`<p class="muted">Загружает прошлые звонки со всех номеров Quo и заводит клиентов. Грузится порциями: нажимайте, пока не появится «Загружено всё». Повторные звонки не дублируются.</p>
+<form method="post" action="/calls/quo-import"><button class="secondary">Загрузить звонки из Quo</button></form>`
+    : html`<p class="muted">Чтобы загрузить прошлые звонки, добавьте в Cloudflare секрет <b>QUO_API_KEY</b> (README, раздел «OpenPhone»).</p>`}` : ''}
 ${can.manageStaff(req.user) ? html`<h2>Очистка</h2>
 <p class="muted">Удаляет все звонки (и заявки с сайтов в этом списке), записи и расшифровки, SMS и базу клиентов. Заявки, сотрудники, сайты и «Номера и операторы» остаются.</p>
 <form method="post" action="/calls/wipe" onsubmit="return confirm('Удалить все звонки, SMS и клиентов? Это нельзя отменить.')"><button class="secondary">Очистить звонки, SMS и клиентов</button></form>` : ''}`, { refresh: 30 });
@@ -335,6 +341,11 @@ calls.get('/:id/recording', async (req, res) => {
   if (!call) return res.status(404).send('Нет звонка');
   const headers = account && req.env.TWILIO_AUTH_TOKEN ? { authorization: `Basic ${btoa(`${account.value}:${req.env.TWILIO_AUTH_TOKEN}`)}` } : {};
   let url = call.recording_url;
+  if (!url && call.call_sid.startsWith('op:')) {
+    url = await recordingUrl(req.env, call.call_sid).catch(() => '');
+    if (url) await run('UPDATE calls SET recording_url = ? WHERE id = ?', url, call.id);
+    else return res.status(404).send('У этого звонка в Quo нет записи.');
+  }
   // Запись OpenPhone — готовая ссылка, открываем её как есть.
   if (url && !url.startsWith('https://api.twilio.com')) return res.redirect(url);
   if (!url && account) {
@@ -351,6 +362,17 @@ calls.get('/:id/recording', async (req, res) => {
   res.raw(new Response(audio.body, { headers: { 'content-type': 'audio/mpeg', 'cache-control': 'private, no-store' } }));
 });
 
+calls.post('/quo-import', async (req, res) => {
+  if (!can.manageCalls(req.user)) return res.denied();
+  try {
+    const { added, done } = await importStep(req.env);
+    res.flash(`Из Quo загружено звонков: ${added}. ${done ? 'Загружено всё.' : 'Это не всё — нажмите «Загрузить звонки из Quo» ещё раз.'}`);
+  } catch (err) {
+    res.flash(`Не получилось загрузить из Quo: ${err.message}.`);
+  }
+  res.redirect('/calls');
+});
+
 // Очистка тестовых данных (только Quant): звонки, SMS, клиенты и уведомления о них. Заявки остаются, просто без клиента.
 calls.post('/wipe', async (req, res) => {
   if (!can.manageStaff(req.user)) return res.denied();
@@ -358,6 +380,7 @@ calls.post('/wipe', async (req, res) => {
   await run('DELETE FROM calls');
   await run('DELETE FROM sms');
   await run('DELETE FROM clients');
+  await run("DELETE FROM settings WHERE key = 'quo_import'");
   await run("DELETE FROM events WHERE status = 'call'");
   await run("DELETE FROM settings WHERE key = 'call_error'");
   res.flash('Звонки, записи, SMS и клиенты удалены.');
