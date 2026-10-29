@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 
 -- Входящие звонки на номер Twilio. status: ringing — звонит, answered — оператор ответил, missed — никто не ответил (перезвонить).
+-- Заявки с сайтов хранятся здесь же: status site — нужно позвонить клиенту; source — сайт, lead_name / lead_address / note — что клиент написал в форме.
 -- order_id — заявка, созданная по этому звонку.
 CREATE TABLE IF NOT EXISTS calls (
   id INTEGER PRIMARY KEY,
@@ -213,6 +214,10 @@ async function migrate() {
   if (!orderColumns.includes('client_id')) await run('ALTER TABLE orders ADD COLUMN client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL');
   const callColumns = calls;
   if (!callColumns.includes('client_id')) await run('ALTER TABLE calls ADD COLUMN client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL');
+  // Заявки с сайтов (форма на сайте → «Звонки»).
+  for (const col of ['source', 'lead_name', 'lead_address', 'note']) {
+    if (!callColumns.includes(col)) await run(`ALTER TABLE calls ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`);
+  }
 }
 
 // Вызывается в начале каждого запроса.
