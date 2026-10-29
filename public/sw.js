@@ -1,7 +1,7 @@
-// Service worker Toronto CRM: оболочка сайта (стили, логотип, иконки, шрифт) берётся из кэша,
+// Service worker Toronto CRM: оболочка сайта (стили, скрипт, логотип, иконки, шрифт) берётся из кэша,
 // страницы с данными всегда загружаются с сервера и в кэш не попадают.
 // После изменения style.css или иконок увеличьте VERSION, чтобы телефоны получили новые файлы.
-const VERSION = 'toronto-v11';
+const VERSION = 'toronto-v12';
 const SHELL = [
   '/style.css',
   '/logo.png',
@@ -11,9 +11,10 @@ const SHELL = [
   '/apple-touch-icon.png',
   '/icon-192.png',
   '/icon-512.png',
+  '/fonts/inter-latin.woff2',
+  '/fonts/inter-cyrillic.woff2',
   '/offline',
 ];
-const FONTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -40,11 +41,11 @@ self.addEventListener('fetch', (event) => {
 
   // Оболочка и шрифт: сразу из кэша, в фоне обновляется.
   const shell = url.origin === location.origin && SHELL.includes(url.pathname);
-  if (shell || FONTS.includes(url.hostname)) {
+  if (shell) {
     event.respondWith(caches.open(VERSION).then(async (cache) => {
-      const cached = await cache.match(request);
+      const cached = await cache.match(request, { ignoreSearch: true });
       const fresh = fetch(request).then((response) => {
-        if (response.ok || response.type === 'opaque') cache.put(request, response.clone());
+        if (response.ok) cache.put(url.pathname, response.clone());
         return response;
       });
       if (cached) {

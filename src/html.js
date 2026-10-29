@@ -2,7 +2,7 @@ const { ROLES, STATUS, can, is } = require('./roles');
 
 const TZ = 'America/Toronto';
 // Меняйте вместе с VERSION в public/sw.js: так браузеры сразу получают новые style.css и app.js.
-const ASSET_VERSION = '11';
+const ASSET_VERSION = '12';
 
 class Raw {
   constructor(value) { this.value = value; }
@@ -205,9 +205,8 @@ function layout({ user, title, body, path = '', flash, refresh }) {
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff">
 ${refresh ? html`<meta http-equiv="refresh" content="${refresh}">` : ''}
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <title>Toronto CRM</title>
 <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai">
 <link rel="stylesheet" href="/style.css?v=${ASSET_VERSION}">
@@ -219,6 +218,7 @@ ${refresh ? html`<meta http-equiv="refresh" content="${refresh}">` : ''}
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Toronto CRM">
 <script src="/app.js?v=${ASSET_VERSION}" defer></script>
+<script type="speculationrules">{"prefetch":[{"where":{"and":[{"href_matches":"/*"},{"not":{"href_matches":"/logout*"}}]},"eagerness":"moderate"}]}</script>
 </head>
 <body>
 ${user ? html`

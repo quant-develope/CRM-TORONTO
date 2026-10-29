@@ -194,16 +194,19 @@ async function init() {
 
 // Изменения схемы для баз, созданных раньше.
 async function migrate() {
+  // Все проверки одним обращением к базе, чтобы первый запрос после деплоя был быстрее.
+  const [users, orders, calls] = (await D1.batch(['users', 'orders', 'calls'].map((t) => D1.prepare(`PRAGMA table_info(${t})`))))
+    .map((r) => r.results.map((c) => c.name));
   // В сети / не в сети: сотрудник сам переключает ползунок в меню.
-  const userColumns = (await all('PRAGMA table_info(users)')).map((c) => c.name);
+  const userColumns = users;
   if (!userColumns.includes('online')) await run('ALTER TABLE users ADD COLUMN online INTEGER NOT NULL DEFAULT 0');
   // Сколько и как клиент заплатил на самом деле (водитель отмечает при закрытии заявки).
-  const orderColumns = (await all('PRAGMA table_info(orders)')).map((c) => c.name);
+  const orderColumns = orders;
   if (!orderColumns.includes('paid_amount')) await run('ALTER TABLE orders ADD COLUMN paid_amount REAL');
   if (!orderColumns.includes('paid_method')) await run('ALTER TABLE orders ADD COLUMN paid_method TEXT');
   // Клиент заявки и звонка (база клиентов).
   if (!orderColumns.includes('client_id')) await run('ALTER TABLE orders ADD COLUMN client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL');
-  const callColumns = (await all('PRAGMA table_info(calls)')).map((c) => c.name);
+  const callColumns = calls;
   if (!callColumns.includes('client_id')) await run('ALTER TABLE calls ADD COLUMN client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL');
 }
 

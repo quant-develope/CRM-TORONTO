@@ -4,6 +4,8 @@
   "main": "src/worker.js",
   "compatibility_date": "2026-10-01",
   "assets": { "directory": "./public" },
+  // Cloudflare запускает сайт рядом с базой D1: несколько запросов к базе на страницу идут быстрее.
+  "placement": { "mode": "smart" },
   // База Cloudflare D1. Без database_id Cloudflare создаёт базу сама при первом деплое (README, «Где работает»).
   "d1_databases": [
     {
