@@ -139,6 +139,16 @@ function menuFor(user) {
   return groups;
 }
 
+// Предложение установить приложение. Показывает /app.js: на Android и компьютере — кнопка, на iPhone — подсказка.
+function installBox() {
+  return html`<div class="install" data-install>
+  <b>Установить приложение</b>
+  <span>Toronto CRM откроется с экрана телефона или с рабочего стола, как обычная программа.</span>
+  <span class="ios">На iPhone: в Safari нажмите «Поделиться» (квадрат со стрелкой) → «На экран „Домой“».</span>
+  <button type="button" class="secondary" data-install-button>Установить</button>
+</div>`;
+}
+
 function brandLogo() {
   return html`<img src="/logo.svg" alt="" class="brand-logo">`;
 }
@@ -171,7 +181,7 @@ ${refresh ? html`<meta http-equiv="refresh" content="${refresh}">` : ''}
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Toronto CRM">
-<script>if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));</script>
+<script src="/app.js" defer></script>
 </head>
 <body>
 ${user ? html`
@@ -193,7 +203,10 @@ ${user ? html`
     <div class="nav-group"><a href="/" class="${path === '/' ? 'active' : ''}">Главная</a></div>
     ${nav}
   </nav>
-  <form method="post" action="/logout" class="drawer-foot"><button class="secondary">Выйти</button></form>
+  <div class="drawer-foot">
+    ${installBox()}
+    <form method="post" action="/logout"><button class="secondary">Выйти</button></form>
+  </div>
 </aside>
 <main>
   ${flash ? html`<div class="flash">${flash}</div>` : ''}
@@ -205,6 +218,6 @@ ${user ? html`
 }
 
 module.exports = {
-  html, raw, escape, layout, brandLogo, fullName, date, when, nowLocal, todayLocal, utcToLocal, money,
+  html, raw, escape, layout, brandLogo, installBox, fullName, date, when, nowLocal, todayLocal, utcToLocal, money,
   phoneHref, phoneLink, navUrl, wazeUrl, mapsLink, roleTag, statusFlag, options,
 };

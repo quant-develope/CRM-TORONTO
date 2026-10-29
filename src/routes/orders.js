@@ -3,7 +3,7 @@ const { Router } = require('../mini');
 const { get, all, run } = require('../db');
 const { can, STATUS, STEPS, ACTIVE, PAY_METHODS } = require('../roles');
 const { html, raw, fullName, date, when, nowLocal, money, phoneLink, mapsLink, statusFlag, options } = require('../html');
-const { driversBoard, ACTIVE_SQL } = require('../board');
+const { driversBoard, boardBlock, ACTIVE_SQL } = require('../board');
 
 const r = new Router();
 
@@ -60,33 +60,35 @@ function defaultArrive() {
 }
 
 async function form(o, { action, submit }) {
-  const { drivers, busy } = await driversBoard();
+  const board = await driversBoard();
+  const { drivers, busy } = board;
   const busyIds = new Set(busy.map((d) => d.id));
   const driverOptions = Object.fromEntries(drivers.map((d) => [d.id, `${fullName(d)} — ${busyIds.has(d.id) && d.id !== o.driver_id ? 'занят' : 'свободен'}`]));
   return html`
+<div class="with-side">
 <form method="post" action="${action}">
   <div class="grid">
-    <h2 class="wide">0. Клиент</h2>
+    <h2 class="wide">Клиент</h2>
     <label>Имя клиента<input name="client_name" value="${o.client_name || ''}" required autocomplete="off"></label>
     <label>Телефон<input name="client_phone" type="tel" value="${o.client_phone || ''}" required autocomplete="off" placeholder="+1 416 555-0100"></label>
 
-    <h2 class="wide">1. Адрес</h2>
+    <h2 class="wide">Адрес</h2>
     <label class="wide">Адрес или ссылка на карту<input name="address" value="${o.address || ''}" required autocomplete="off" placeholder="123 Queen St W, Toronto, ON"></label>
 
-    <h2 class="wide">2. Во сколько приехать</h2>
+    <h2 class="wide">Во сколько приехать</h2>
     <label>Дата и время (Торонто)<input name="arrive_at" type="datetime-local" value="${localInput(o.arrive_at) || defaultArrive()}" required></label>
 
-    <h2 class="wide">3. Сколько платит клиент</h2>
+    <h2 class="wide">Сколько платит клиент</h2>
     <label>Сумма, $<input name="price" type="number" min="0" step="0.01" inputmode="decimal" value="${o.price ?? ''}" required></label>
     <label>Способ оплаты<select name="pay_method">${options(PAY_METHODS, o.pay_method || 'cash')}</select></label>
 
-    <h2 class="wide">4. Сколько получит работник</h2>
+    <h2 class="wide">Сколько получит работник</h2>
     <label>Оплата работнику, $<input name="worker_pay" type="number" min="0" step="0.01" inputmode="decimal" value="${o.worker_pay ?? ''}" required></label>
 
-    <h2 class="wide">5. Задача</h2>
+    <h2 class="wide">Задача</h2>
     <label class="wide">Что сделать<textarea name="task" required placeholder="Почистить подъездную дорожку и тротуар, посыпать солью">${o.task || ''}</textarea></label>
 
-    <h2 class="wide">6. По прибытии</h2>
+    <h2 class="wide">По прибытии</h2>
     <fieldset class="wide">
       <label class="check"><input type="radio" name="notify_client" value="1"${o.notify_client ? raw(' checked') : ''}> Позвонить клиенту по прибытии</label>
       <label class="check"><input type="radio" name="notify_client" value="0"${!o.notify_client ? raw(' checked') : ''}> Можно сразу приступать к работе</label>
@@ -96,7 +98,9 @@ async function form(o, { action, submit }) {
     <label class="wide">Кому назначить<select name="driver_id" required>${options(driverOptions, o.driver_id, { empty: drivers.length ? '— выберите водителя —' : 'Сначала добавьте водителей' })}</select></label>
   </div>
   <div class="actions"><button>${submit}</button><a href="${o.id ? `/orders/${o.id}` : '/orders'}" class="button secondary">Отмена</a></div>
-</form>`;
+</form>
+<aside class="side-panel">${boardBlock(board, { compact: true })}</aside>
+</div>`;
 }
 
 async function readForm(body) {

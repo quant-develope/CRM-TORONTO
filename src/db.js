@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS auth_log (
 );
 
 -- Заявка на уборку снега. Время приезда и отметки этапов — по времени Торонто (YYYY-MM-DD HH:MM).
--- pay_method: cash — наличные, card — карта. notify_client = 1 — по прибытии позвонить клиенту, 0 — сразу начинать.
+-- pay_method: cash — наличные, card — трансфер. notify_client = 1 — по прибытии позвонить клиенту, 0 — сразу начинать.
 -- status: assigned → accepted → arrived → started → done; cancelled — отменена.
 CREATE TABLE IF NOT EXISTS orders (
   id INTEGER PRIMARY KEY,

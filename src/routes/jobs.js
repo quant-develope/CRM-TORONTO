@@ -12,7 +12,7 @@ r.use((req, res, next) => {
   next();
 });
 
-const payLine = (o) => html`${money(o.price)} · ${o.pay_method === 'card' ? 'картой' : 'наличными'}`;
+const payLine = (o) => html`${money(o.price)} · ${o.pay_method === 'card' ? 'трансфером' : 'наличными'}`;
 
 // Кнопки для текущего этапа заявки.
 function jobActions(o) {
@@ -32,7 +32,7 @@ function jobActions(o) {
         ? html`<a href="${phoneHref(o.client_phone)}" class="button go">Позвонить клиенту</a>${start('secondary')}`
         : start('go');
     case 'started':
-      return post('done', 'Закончено, оплачено', 'go', `Работа закончена и клиент заплатил ${money(o.price)} ${o.pay_method === 'card' ? 'картой' : 'наличными'}?`);
+      return post('done', 'Закончено, оплачено', 'go', `Работа закончена и клиент заплатил ${money(o.price)} ${o.pay_method === 'card' ? 'трансфером' : 'наличными'}?`);
     default:
       return '';
   }
@@ -65,7 +65,7 @@ async function driverHome(req, res) {
   // Пока нет заявки в работе, страница обновляется сама — новая заявка появится без перезагрузки.
   const idle = jobs.every((j) => j.status === 'assigned');
   res.page(jobs.length ? 'Мои заявки' : 'Заявок нет', html`
-${jobs.length ? jobs.map((j) => jobCard(j)) : html`<p class="muted">Вы в списке «Свободны». Новая заявка появится здесь, страница обновляется сама.</p>`}
+${jobs.length ? html`<div class="jobs">${jobs.map((j) => jobCard(j))}</div>` : html`<p class="muted">Вы в списке «Свободны». Новая заявка появится здесь, страница обновляется сама.</p>`}
 <p class="muted">Сегодня выполнено: ${today.n} · заработано ${money(today.pay)}. <a href="/jobs/done">Выполненные →</a></p>`, { refresh: idle ? 30 : 0 });
 }
 

@@ -34,7 +34,7 @@ r.get('/', async (req, res) => {
   <div class="stat"><b>${money(sum('cash') + sum('card') - sum('pay'))}</b><span>остаётся компании</span></div>
 </div>
 ${rows.length ? html`<div class="table-wrap"><table>
-<tr><th>Водитель</th><th>Заявок</th><th>Наличные</th><th>Карта</th><th>Начислено работнику</th><th>Сдать наличных*</th></tr>
+<tr><th>Водитель</th><th>Заявок</th><th>Наличные</th><th>Трансфер</th><th>Начислено работнику</th><th>Сдать наличных*</th></tr>
 ${rows.map((x) => html`<tr><td>${fullName(x)}</td><td>${x.n}</td><td>${money(x.cash)}</td><td>${money(x.card)}</td><td>${money(x.pay)}</td><td>${money(x.cash - x.pay)}</td></tr>`)}
 <tr class="total"><td>Итого</td><td>${sum('n')}</td><td>${money(sum('cash'))}</td><td>${money(sum('card'))}</td><td>${money(sum('pay'))}</td><td>${money(sum('cash') - sum('pay'))}</td></tr>
 </table></div>

@@ -19,9 +19,9 @@ async function driversBoard() {
   return { drivers, free, busy };
 }
 
-function boardBlock({ free, busy }) {
+function boardBlock({ free, busy }, { compact = false } = {}) {
   return html`
-<div class="board">
+<div class="board${compact ? ' compact' : ''}">
   <section class="board-col">
     <h2><span class="dot dot-green"></span>Свободны <b>${free.length}</b></h2>
     ${free.length ? html`<ul>${free.map((d) => html`<li><b>${fullName(d)}</b><span class="muted small">${phoneLink(d.phone)}</span>

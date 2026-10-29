@@ -22,7 +22,8 @@ const STEPS = ['assigned', 'accepted', 'arrived', 'started', 'done'];
 // Пока заявка в одном из этих статусов, водитель в разделе «Заняты».
 const ACTIVE = ['assigned', 'accepted', 'arrived', 'started'];
 
-const PAY_METHODS = { cash: 'Наличные', card: 'Карта' };
+// card — перевод (трансфер); ключ оставлен прежним, чтобы не менять данные.
+const PAY_METHODS = { cash: 'Наличные', card: 'Трансфер' };
 
 const is = (user, ...roles) => Boolean(user) && roles.includes(user.role);
 

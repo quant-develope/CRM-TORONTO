@@ -316,3 +316,46 @@ a.stat:hover { transform: translateY(-2px); border-color: var(--fg); box-shadow:
 .steps li.done { color: var(--fg); font-weight: 500; }
 .stats.money b { font-size: 26px; }
 @media (max-width: 800px) { .stats.money b { font-size: 20px; } }
+
+/* Компьютер: рабочее место КЦ — рядом форма и водители, доска и ближайшие заявки */
+.with-side { display: grid; grid-template-columns: 1fr; gap: 24px; }
+.side-panel .board { margin: 0; }
+.board.compact { grid-template-columns: 1fr; }
+.desk-split { display: grid; grid-template-columns: 1fr; gap: 0 24px; }
+h2.flush { margin-top: 0; }
+.jobs { display: grid; grid-template-columns: 1fr; gap: 0 16px; align-items: start; }
+@media (min-width: 1024px) {
+  .drawer ~ main { max-width: calc(1600px + 264px); }
+  .with-side { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
+  .side-panel { position: sticky; top: calc(88px + env(safe-area-inset-top)); }
+  .desk-split { grid-template-columns: 340px minmax(0, 1fr); align-items: start; }
+  .jobs { grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+}
+@media (min-width: 1440px) {
+  .board:not(.compact) { grid-template-columns: 1fr 1fr; }
+  .desk-split { grid-template-columns: 420px minmax(0, 1fr); }
+}
+@media (max-width: 1023px) {
+  .side-panel { order: 1; }
+  .side-panel .board-col li span:last-child a[href^="/orders/new"] { display: none; }
+}
+
+/* Установка приложения (PWA) */
+.install { display: none; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; margin: 0 0 12px; font-size: 13px; line-height: 1.45; }
+.install.show { display: block; }
+.install b { display: block; font-size: 14px; margin-bottom: 4px; }
+.install button { width: 100%; margin-top: 8px; min-height: 40px; }
+.install .ios { display: none; }
+.install.ios-only .ios { display: block; }
+.install.ios-only button { display: none; }
+@media (display-mode: standalone) { .install { display: none !important; } }
+/* В приложении на телефоне — отступ снизу под «полоску» iPhone */
+@media (display-mode: standalone) and (max-width: 800px) { main { padding-bottom: calc(56px + env(safe-area-inset-bottom)); } }
+.login .install { width: 100%; max-width: 380px; background: var(--bg); }
+/* Суммы без стрелочек +/- */
+input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.login { flex-direction: column; gap: 16px; }
+.brand.big { letter-spacing: 0.16em; white-space: nowrap; }
+.brand.big .brand-logo { height: 56px; }

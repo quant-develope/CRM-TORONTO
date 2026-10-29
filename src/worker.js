@@ -1,6 +1,6 @@
 import { Router, Response_, makeRequest } from './mini';
 import { connect, get, run, all, verifyPassword, hashPassword } from './db';
-import { html, layout, brandLogo, fullName, date, utcToLocal, roleTag, todayLocal } from './html';
+import { html, layout, brandLogo, installBox, fullName, date, when, utcToLocal, roleTag, statusFlag, todayLocal } from './html';
 import { can, is } from './roles';
 import { driversBoard, boardBlock, ACTIVE_SQL } from './board';
 import orders from './routes/orders';
@@ -52,6 +52,7 @@ function loginPage(error, login = '') {
     <label>Пароль<input name="password" type="password" autocomplete="current-password" required></label>
     <button>Войти</button>
   </form>
+  ${installBox()}
 </div>`,
   }));
 }
@@ -112,6 +113,8 @@ app.get('/', async (req, res) => {
   if (is(u, 'driver')) return driverHome(req, res);
   const count = async (sql, ...p) => (await get(sql, ...p)).n;
   const board = await driversBoard();
+  const upcoming = await all(`SELECT o.*, u.first_name, u.last_name, u.login FROM orders o LEFT JOIN users u ON u.id = o.driver_id
+                              WHERE o.status IN (${ACTIVE_SQL}) ORDER BY o.arrive_at, o.id LIMIT 12`);
   const counts = {
     active: await count(`SELECT COUNT(*) AS n FROM orders WHERE status IN (${ACTIVE_SQL})`),
     waiting: await count("SELECT COUNT(*) AS n FROM orders WHERE status = 'assigned'"),
@@ -125,7 +128,16 @@ app.get('/', async (req, res) => {
   <a href="/report" class="stat"><b>${counts.done}</b><span>выполнено сегодня</span></a>
   <a href="/drivers" class="stat"><b>${board.free.length}</b><span>водителей свободны</span></a>
 </div>
-${board.drivers.length ? boardBlock(board) : html`<p class="notice">Водителей пока нет. ${can.manageStaff(u) ? html`<a href="/staff/new?role=driver">Добавить водителя →</a>` : 'Их добавляет Quant.'}</p>`}`, { refresh: 60 });
+<div class="desk-split">
+  <div>${board.drivers.length ? boardBlock(board, { compact: true }) : html`<p class="notice">Водителей пока нет. ${can.manageStaff(u) ? html`<a href="/staff/new?role=driver">Добавить водителя →</a>` : 'Их добавляет Quant.'}</p>`}</div>
+  <section>
+    <h2 class="flush">Ближайшие заявки</h2>
+    ${upcoming.length ? html`<div class="table-wrap"><table>
+    <tr><th>Приезд</th><th>Адрес</th><th>Водитель</th><th>Статус</th></tr>
+    ${upcoming.map((o) => html`<tr><td class="nowrap"><a href="/orders/${o.id}">${when(o.arrive_at)}</a></td><td>${o.address}</td><td>${fullName(o)}</td><td>${statusFlag(o.status)}</td></tr>`)}
+    </table></div><p><a href="/orders">Все заявки →</a></p>` : html`<p class="muted">Активных заявок нет. <a href="/orders/new">Создать заявку →</a></p>`}
+  </section>
+</div>`, { refresh: 60 });
 });
 
 app.get('/drivers', async (req, res) => {
