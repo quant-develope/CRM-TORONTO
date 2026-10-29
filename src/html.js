@@ -2,7 +2,7 @@ const { ROLES, STATUS, can, is } = require('./roles');
 
 const TZ = 'America/Toronto';
 // Меняйте вместе с VERSION в public/sw.js: так браузеры сразу получают новые style.css и app.js.
-const ASSET_VERSION = '4';
+const ASSET_VERSION = '6';
 
 class Raw {
   constructor(value) { this.value = value; }
@@ -150,6 +150,16 @@ function installBox() {
 </div>`;
 }
 
+// Плашка на главной: включить push на этом телефоне (скрывается, когда уже включены).
+function pushBanner(text) {
+  return html`<div class="notice push-banner" data-push data-banner hidden>
+  <b>Уведомления на телефон</b>
+  <span>${text}</span>
+  <span data-push-status></span>
+  <button type="button" data-push-button hidden>Включить уведомления</button>
+</div>`;
+}
+
 function brandLogo() {
   return html`<img src="/logo.svg" alt="" class="brand-logo">`;
 }
@@ -223,6 +233,6 @@ ${user ? html`
 }
 
 module.exports = {
-  html, raw, escape, layout, brandLogo, installBox, fullName, date, when, nowLocal, todayLocal, utcToLocal, money,
+  html, raw, escape, layout, brandLogo, installBox, pushBanner, fullName, date, when, nowLocal, todayLocal, utcToLocal, money,
   phoneHref, phoneLink, navUrl, wazeUrl, mapsLink, roleTag, statusFlag, options,
 };

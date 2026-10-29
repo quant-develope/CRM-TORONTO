@@ -1,8 +1,8 @@
 // Заявки водителя: принять → навигатор → «На месте» → «Позвонить» или «Начать» → «Закончено, оплачено».
 const { Router } = require('../mini');
 const { get, all, run } = require('../db');
-const { is, PAY_METHODS } = require('../roles');
-const { html, raw, date, when, nowLocal, todayLocal, money, phoneHref, phoneLink, navUrl, wazeUrl, statusFlag } = require('../html');
+const { is, PAY_METHODS, PAY_HOW, paidAmount, paidMethod } = require('../roles');
+const { html, raw, options, pushBanner, date, when, nowLocal, todayLocal, money, phoneHref, phoneLink, navUrl, wazeUrl, statusFlag } = require('../html');
 const { ACTIVE_SQL } = require('../board');
 const { notify } = require('../push');
 
@@ -13,7 +13,30 @@ r.use((req, res, next) => {
   next();
 });
 
-const payLine = (o) => html`${money(o.price)} · ${o.pay_method === 'card' ? 'трансфером' : 'наличными'}`;
+const payLine = (o) => html`${money(o.price)} · ${PAY_HOW[o.pay_method]}`;
+const otherMethod = (o) => (o.pay_method === 'card' ? 'cash' : 'card');
+
+// Закрытие заявки: как в заявке; другим способом (наличные ↔ трансфер); другая сумма.
+function doneActions(o) {
+  const done = (fields, label, cls, confirm) => html`
+  <form method="post" action="/jobs/${o.id}/done" onsubmit="return confirm('${confirm}')">
+    ${Object.entries(fields).map(([k, v]) => html`<input type="hidden" name="${k}" value="${v}">`)}
+    <button class="${cls}">${label}</button>
+  </form>`;
+  const other = otherMethod(o);
+  return html`
+  ${done({ amount: o.price, method: o.pay_method }, 'Закончено, оплачено', 'go', `Работа закончена и клиент заплатил ${money(o.price)} ${PAY_HOW[o.pay_method]}?`)}
+  ${done({ amount: o.price, method: other }, other === 'card' ? 'Закончено, клиент платит переводом' : 'Закончено, клиент заплатил наличными', 'secondary',
+    `Работа закончена, клиент платит ${money(o.price)} ${PAY_HOW[other]}?`)}
+  <details class="other-sum">
+    <summary class="button secondary">Клиент заплатил другую сумму</summary>
+    <form method="post" action="/jobs/${o.id}/done" class="other-sum-form">
+      <label>Сколько заплатил клиент, $<input name="amount" type="number" min="0" step="0.01" inputmode="decimal" required></label>
+      <label>Как заплатил<select name="method">${options(PAY_METHODS, o.pay_method)}</select></label>
+      <button class="go">Закончено</button>
+    </form>
+  </details>`;
+}
 
 // Кнопки для текущего этапа заявки.
 function jobActions(o) {
@@ -33,7 +56,7 @@ function jobActions(o) {
         ? html`<a href="${phoneHref(o.client_phone)}" class="button go">Позвонить клиенту</a>${start('secondary')}`
         : start('go');
     case 'started':
-      return post('done', 'Закончено, оплачено', 'go', `Работа закончена и клиент заплатил ${money(o.price)} ${o.pay_method === 'card' ? 'трансфером' : 'наличными'}?`);
+      return doneActions(o);
     default:
       return '';
   }
@@ -66,6 +89,7 @@ async function driverHome(req, res) {
   // Пока нет заявки в работе, страница обновляется сама — новая заявка появится без перезагрузки.
   const idle = jobs.every((j) => j.status === 'assigned');
   res.page(jobs.length ? 'Мои заявки' : 'Заявок нет', html`
+${pushBanner('Включите, чтобы сразу узнавать о новой заявке.')}
 ${jobs.length ? html`<div class="jobs">${jobs.map((j) => jobCard(j))}</div>` : html`<p class="muted">Вы в списке «Свободны». Новая заявка появится здесь, страница обновляется сама.</p>`}
 <p class="muted">Сегодня выполнено: ${today.n} · заработано ${money(today.pay)}. <a href="/jobs/done">Выполненные →</a></p>`, { refresh: idle ? 30 : 0 });
 }
@@ -76,7 +100,7 @@ r.get('/done', async (req, res) => {
   res.page('Выполненные заявки', rows.length ? html`
 <div class="table-wrap"><table>
 <tr><th>Закончено</th><th>Адрес</th><th>Взято с клиента</th><th>Вам</th></tr>
-${rows.map((o) => html`<tr><td class="nowrap">${date(o.done_at)}</td><td>${o.address}</td><td class="nowrap">${money(o.price)} <span class="muted small">${PAY_METHODS[o.pay_method]}</span></td><td class="nowrap">${money(o.worker_pay)}</td></tr>`)}
+${rows.map((o) => html`<tr><td class="nowrap">${date(o.done_at)}</td><td>${o.address}</td><td class="nowrap">${money(paidAmount(o))} <span class="muted small">${PAY_METHODS[paidMethod(o)]}</span></td><td class="nowrap">${money(o.worker_pay)}</td></tr>`)}
 <tr class="total"><td colspan="3">Итого (последние ${rows.length})</td><td class="nowrap">${money(total)}</td></tr>
 </table></div>` : html`<p class="muted">Пока нет выполненных заявок.</p>`);
 });
@@ -108,6 +132,12 @@ r.post('/:id/:step', async (req, res) => {
   const [from, to, column] = step;
   const { changes } = await run(`UPDATE orders SET status = ?, ${column} = ? WHERE id = ? AND driver_id = ? AND status = ?`,
     to, nowLocal(), req.params.id, req.user.id, from);
+  if (changes && to === 'done') {
+    const o = await own(req);
+    const amount = Number(req.body.amount);
+    await run('UPDATE orders SET paid_amount = ?, paid_method = ? WHERE id = ?',
+      Number.isFinite(amount) && amount >= 0 && req.body.amount !== '' ? amount : o.price, PAY_METHODS[req.body.method] ? req.body.method : o.pay_method, o.id);
+  }
   if (changes) await notify(req, { order: await own(req), status: to });
   if (to === 'done' && changes) {
     res.flash('Заявка закрыта. Спасибо!');

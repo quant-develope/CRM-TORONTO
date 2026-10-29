@@ -1,6 +1,6 @@
 import { Router, Response_, makeRequest } from './mini';
 import { connect, get, run, all, verifyPassword, hashPassword } from './db';
-import { html, layout, brandLogo, fullName, date, when, utcToLocal, roleTag, statusFlag, todayLocal } from './html';
+import { html, layout, brandLogo, pushBanner, fullName, date, when, utcToLocal, roleTag, statusFlag, todayLocal } from './html';
 import { can, is } from './roles';
 import { driversBoard, boardBlock, ACTIVE_SQL } from './board';
 import orders from './routes/orders';
@@ -121,6 +121,7 @@ app.get('/', async (req, res) => {
     done: await count("SELECT COUNT(*) AS n FROM orders WHERE status = 'done' AND substr(done_at, 1, 10) = ?", todayLocal()),
   };
   res.page(`Здравствуйте, ${fullName(u)}`, html`
+${pushBanner('Включите, чтобы узнавать, когда водитель принял заявку, приехал, начал и закончил работу.')}
 <div class="toolbar"><span>Роль: ${roleTag(u.role)}</span><a href="/orders/new" class="button">+ Новая заявка</a></div>
 <div class="stats">
   <a href="/orders?status=active" class="stat"><b>${counts.active}</b><span>активных заявок</span></a>

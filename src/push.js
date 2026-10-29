@@ -2,8 +2,8 @@
 // Push отправляется без содержимого: телефон просыпается, service worker сам забирает текст события с сайта (/api/events).
 // Так не нужно шифровать сообщения, а ключи VAPID создаются сами и хранятся в базе.
 const { get, all, run } = require('./db');
-const { STATUS } = require('./roles');
-const { fullName } = require('./html');
+const { STATUS, PAY_HOW, paidAmount, paidMethod, paidDiffers } = require('./roles');
+const { fullName, money } = require('./html');
 
 const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const textB64 = (s) => b64url(new TextEncoder().encode(s));
@@ -62,7 +62,7 @@ async function notify(req, { order, status, target = null }) {
     : `${fullName(driver)}: ${(STATUS[status] || [status])[0]}`;
   const body = target
     ? `${order.arrive_at ? `${order.arrive_at.slice(11, 16)} · ` : ''}${order.address}`
-    : `Заявка №${order.id} · ${order.address}`;
+    : `Заявка №${order.id} · ${order.address}${status === 'done' ? ` · ${money(paidAmount(order))} ${PAY_HOW[paidMethod(order)]}${paidDiffers(order) ? ` (в заявке ${money(order.price)} ${PAY_HOW[order.pay_method]})` : ''}` : ''}`;
   const url = target ? `/jobs/${order.id}` : `/orders/${order.id}`;
   await run('INSERT INTO events (order_id, status, target_user_id, title, body, url) VALUES (?, ?, ?, ?, ?, ?)',
     order.id, status, target, title, body, url);

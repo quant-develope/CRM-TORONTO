@@ -25,6 +25,14 @@ const ACTIVE = ['assigned', 'accepted', 'arrived', 'started'];
 // card — перевод (трансфер); ключ оставлен прежним, чтобы не менять данные.
 const PAY_METHODS = { cash: 'Наличные', card: 'Трансфер' };
 
+// «наличными» / «трансфером» — для подписей вроде «300 $ наличными».
+const PAY_HOW = { cash: 'наличными', card: 'трансфером' };
+
+// Фактическая оплата заявки: что отметил водитель, а если не отмечал — как было в заявке.
+const paidAmount = (o) => (o.paid_amount ?? o.price);
+const paidMethod = (o) => (o.paid_method || o.pay_method);
+const paidDiffers = (o) => o.status === 'done' && (paidAmount(o) !== o.price || paidMethod(o) !== o.pay_method);
+
 const is = (user, ...roles) => Boolean(user) && roles.includes(user.role);
 
 const can = {
@@ -34,4 +42,4 @@ const can = {
   viewAuthLog: (u) => is(u, 'quant'),
 };
 
-module.exports = { ROLES, STAFF_ROLES, STATUS, STEPS, ACTIVE, PAY_METHODS, is, can };
+module.exports = { ROLES, STAFF_ROLES, STATUS, STEPS, ACTIVE, PAY_METHODS, PAY_HOW, paidAmount, paidMethod, paidDiffers, is, can };

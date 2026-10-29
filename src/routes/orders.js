@@ -1,7 +1,7 @@
 // Заявки для КЦ и Quant: создать, назначить водителя, изменить, отменить.
 const { Router } = require('../mini');
 const { get, all, run } = require('../db');
-const { can, STATUS, STEPS, ACTIVE, PAY_METHODS } = require('../roles');
+const { can, STATUS, STEPS, ACTIVE, PAY_METHODS, PAY_HOW, paidAmount, paidMethod, paidDiffers } = require('../roles');
 const { html, raw, fullName, date, when, nowLocal, money, phoneLink, mapsLink, statusFlag, options } = require('../html');
 const { driversBoard, boardBlock, ACTIVE_SQL } = require('../board');
 const { notify } = require('../push');
@@ -40,7 +40,7 @@ ${rows.map((o) => html`<tr>
   <td>${o.client_name || '—'}<br><span class="small">${phoneLink(o.client_phone)}</span></td>
   <td>${o.address}</td>
   <td>${o.driver_id ? fullName(o) : '—'}</td>
-  <td class="nowrap">${money(o.price)} <span class="muted small">${PAY_METHODS[o.pay_method]}</span></td>
+  <td class="nowrap">${money(o.price)} <span class="muted small">${PAY_METHODS[o.pay_method]}</span>${paidDiffers(o) ? html`<br><span class="paid-diff">заплатил ${money(paidAmount(o))} ${PAY_HOW[paidMethod(o)]}</span>` : ''}</td>
   <td class="nowrap">${money(o.worker_pay)}</td>
   <td>${statusFlag(o.status)}</td>
 </tr>`)}
@@ -163,6 +163,7 @@ r.get('/:id', async (req, res) => {
   <dt>Адрес</dt><dd>${mapsLink(o.address)}</dd>
   <dt>Приехать</dt><dd>${date(o.arrive_at)}</dd>
   <dt>Клиент платит</dt><dd>${money(o.price)} · ${PAY_METHODS[o.pay_method]}</dd>
+  ${o.status === 'done' ? html`<dt>Клиент заплатил</dt><dd class="${paidDiffers(o) ? 'paid-diff' : ''}">${money(paidAmount(o))} · ${PAY_METHODS[paidMethod(o)]}${paidDiffers(o) ? ' — не как в заявке' : ''}</dd>` : ''}
   <dt>Работнику</dt><dd>${money(o.worker_pay)}</dd>
   <dt>Задача</dt><dd class="task-text">${o.task || '—'}</dd>
   <dt>По прибытии</dt><dd>${o.notify_client ? html`<span class="notify-yes">Позвонить клиенту</span>` : 'Сразу приступать к работе'}</dd>

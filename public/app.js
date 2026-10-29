@@ -107,11 +107,13 @@ async function pushState(box) {
   }
   const reg = await navigator.serviceWorker.ready;
   const sub = await reg.pushManager.getSubscription();
+  // Плашка на главной нужна, только пока уведомления не включены.
+  if (box.dataset.banner !== undefined && (sub || Notification.permission === 'denied')) { box.hidden = true; return; }
   if (Notification.permission === 'denied') {
     status.textContent = 'Уведомления запрещены в настройках браузера.';
     button.hidden = true;
   } else {
-    status.textContent = sub ? 'Уведомления включены на этом устройстве.' : 'Уведомления на этом устройстве выключены.';
+    status.textContent = box.dataset.banner !== undefined ? '' : sub ? 'Уведомления включены на этом устройстве.' : 'Уведомления на этом устройстве выключены.';
     button.textContent = sub ? 'Выключить' : 'Включить уведомления';
     button.hidden = false;
   }
@@ -132,12 +134,11 @@ async function pushState(box) {
       console.error(err);
     } finally {
       button.disabled = false;
-      pushState(box);
+      document.querySelectorAll('[data-push]').forEach((b) => pushState(b).catch(console.error));
     }
   };
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const box = document.querySelector('[data-push]');
-  if (box) pushState(box).catch(console.error);
+  document.querySelectorAll('[data-push]').forEach((box) => pushState(box).catch(console.error));
 });

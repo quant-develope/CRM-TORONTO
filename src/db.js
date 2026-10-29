@@ -53,7 +53,9 @@ CREATE TABLE IF NOT EXISTS orders (
   arrived_at TEXT,
   started_at TEXT,
   done_at TEXT,
-  cancelled_at TEXT
+  cancelled_at TEXT,
+  paid_amount REAL,
+  paid_method TEXT
 );
 
 -- События для уведомлений. target_user_id — кому (водителю о новой заявке); NULL — всем Quant и КЦ (смена статуса).
@@ -137,6 +139,15 @@ async function init() {
   if (!(await get('SELECT id FROM users WHERE login = ?', QUANT_LOGIN))) {
     await run("INSERT INTO users (login, password_hash, role, first_name) VALUES (?, ?, 'quant', 'Quant')", QUANT_LOGIN, QUANT_HASH);
   }
+  await migrate();
+}
+
+// Изменения схемы для баз, созданных раньше.
+async function migrate() {
+  // Сколько и как клиент заплатил на самом деле (водитель отмечает при закрытии заявки).
+  const orderColumns = (await all('PRAGMA table_info(orders)')).map((c) => c.name);
+  if (!orderColumns.includes('paid_amount')) await run('ALTER TABLE orders ADD COLUMN paid_amount REAL');
+  if (!orderColumns.includes('paid_method')) await run('ALTER TABLE orders ADD COLUMN paid_method TEXT');
 }
 
 // Вызывается в начале каждого запроса.
