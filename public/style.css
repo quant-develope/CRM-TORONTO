@@ -457,3 +457,6 @@ tr.mine td { background: #eefbf2; }
 .lead-site { margin-bottom: 6px; }
 form.inline-edit { display: flex; gap: 8px; align-items: center; }
 form.inline-edit input { min-width: 180px; }
+
+.status-form { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin: 16px 0; }
+.status-form label { flex: 1 1 220px; max-width: 320px; }

@@ -190,6 +190,11 @@ r.get('/:id', async (req, res) => {
 <h2>Ход выполнения</h2>
 <ol class="steps">${STEPS.map((s) => html`<li class="${o[STEP_AT[s]] ? 'done' : ''}">${STATUS[s][0]}${o[STEP_AT[s]] ? html` — ${date(o[STEP_AT[s]])}` : ''}</li>`)}</ol>
 ${o.status === 'cancelled' ? html`<p class="muted">Отменена ${date(o.cancelled_at)}.</p>` : ''}
+${can.setStatus(req.user) && o.driver_id ? html`
+<form method="post" action="/orders/${o.id}/status" class="status-form">
+  <label>Сменить статус<select name="status">${options(Object.fromEntries(STEPS.map((s) => [s, STATUS[s][0]])), o.status === 'cancelled' ? '' : o.status)}</select></label>
+  <button class="secondary">Сохранить статус</button>
+</form>` : ''}
 ${open ? html`
 <div class="actions">
   <a href="/orders/${o.id}/edit" class="button">Изменить / переназначить</a>
@@ -234,6 +239,23 @@ r.post('/:id/cancel', async (req, res) => {
   await run(`UPDATE orders SET status = 'cancelled', cancelled_at = ? WHERE id = ? AND status IN (${ACTIVE_SQL})`, nowLocal(), req.params.id);
   res.flash('Заявка отменена, водитель свободен.');
   res.redirect(`/orders/${req.params.id}`);
+});
+
+// Quant вручную ставит этап: прошедшие этапы получают время (если его не было), следующие — очищаются.
+r.post('/:id/status', async (req, res) => {
+  if (!can.setStatus(req.user)) return res.denied();
+  const o = await loadOrder(req.params.id);
+  const to = String(req.body.status || '');
+  if (!o || !o.driver_id || !STEPS.includes(to)) return res.redirect(`/orders/${req.params.id}`);
+  const now = nowLocal();
+  const reached = STEPS.slice(0, STEPS.indexOf(to) + 1);
+  const sets = STEPS.map((s) => `${STEP_AT[s]} = ${reached.includes(s) ? `COALESCE(${STEP_AT[s]}, ?)` : 'NULL'}`);
+  const params = reached.map(() => now);
+  // Заявка больше не закрыта — сбрасываем оплату и отметку о сданных наличных.
+  const reset = to === 'done' ? '' : ', paid_amount = NULL, paid_method = NULL, settled_at = NULL, settled_by = NULL';
+  await run(`UPDATE orders SET status = ?, ${sets.join(', ')}, cancelled_at = NULL${reset} WHERE id = ?`, to, ...params, o.id);
+  res.flash(`Статус заявки: ${STATUS[to][0]}.`);
+  res.redirect(`/orders/${o.id}`);
 });
 
 module.exports = r;
