@@ -78,25 +78,12 @@ twilio.use(async (req, res, next) => {
   next();
 });
 
-// Режим «принять код»: Quant включает на 10 минут, звонки не переадресуются, а записываются и расшифровываются
-// (например, сервис диктует код подтверждения). Срок хранится в settings как время UTC.
-async function codeModeUntil() {
-  const row = await get("SELECT value FROM settings WHERE key = 'code_mode_until'");
-  return row && row.value > new Date().toISOString() ? row.value : '';
-}
-
 // Входящий звонок.
 twilio.post('/voice', async (req, res) => {
   const from = String(req.body.From || '');
   const sid = String(req.body.CallSid || '');
   const to = String(req.body.To || '');
   if (req.body.AccountSid) await run("INSERT INTO settings (key, value) VALUES ('twilio_account', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", String(req.body.AccountSid));
-  if (await codeModeUntil()) {
-    await run("INSERT OR IGNORE INTO calls (call_sid, from_number, to_number, status) VALUES (?, ?, ?, 'recorded')", sid, from, to);
-    await addEvent(req, { status: 'call', title: `🎙 Записываю звонок ${prettyPhone(from) || 'со скрытого номера'}`, body: 'Режим «принять код»: расшифровка появится в «Звонках»', url: '/calls' });
-    // Робот (например, WhatsApp) просит «нажмите 1, чтобы получить код»: ждём начала фразы и нажимаем 1 дважды с паузой 2 секунды.
-    return twiml(res, '<Pause length="3"/><Play digits="1wwww1"/><Record maxLength="90" timeout="15" playBeep="false" trim="do-not-trim" action="/twilio/recorded" recordingStatusCallback="/twilio/recorded" transcribe="true" transcribeCallback="/twilio/transcript"/><Hangup/>');
-  }
   // Номер, на который позвонили, принадлежит оператору: клиент закрепляется за ним, звонок идёт на его личный телефон.
   const line = await lineFor(to);
   const personal = line ? normalizePhone(line.user_phone) : '';
@@ -251,15 +238,8 @@ calls.get('/', async (req, res) => {
   const office = Object.fromEntries((await all("SELECT * FROM users WHERE active = 1 AND role IN ('quant', 'web', 'dispatcher') ORDER BY first_name"))
     .map((u) => [u.id, fullName(u)]));
   const lastError = quant ? await get("SELECT value FROM settings WHERE key = 'call_error'") : null;
-  const codeUntil = await codeModeUntil();
   const sms = await all('SELECT * FROM sms ORDER BY id DESC LIMIT 30');
   res.page('Звонки', html`
-${quant ? html`<div class="notice">
-  ${codeUntil ? html`<b>Режим «принять код» включён</b> до ${date(utcToLocal(codeUntil.slice(0, 19).replace('T', ' ')))}: звонки не переадресуются, а записываются и расшифровываются.
-    <form method="post" action="/calls/code-mode" class="inline"><input type="hidden" name="off" value="1"><button class="secondary small">Выключить</button></form>`
-    : html`<b>Принять код по звонку.</b> На 10 минут звонки не переадресуются: CRM сама берёт трубку, нажимает «1» (для кода WhatsApp), записывает до 90 секунд и показывает расшифровку здесь.
-    <form method="post" action="/calls/code-mode" class="inline"><button class="small">Включить на 10 минут</button></form>`}
-</div>` : ''}
 ${sms.length ? html`<h2>SMS</h2><div class="table-wrap"><table>
 <tr><th>Время</th><th>От кого</th><th>Текст</th></tr>
 ${sms.map((m) => html`<tr><td class="nowrap">${when(utcToLocal(m.created_at))}</td><td class="nowrap">${prettyPhone(m.from_number) || m.from_number}</td><td><b>${m.body}</b></td></tr>`)}
@@ -330,14 +310,6 @@ calls.post('/lines', async (req, res) => {
 calls.post('/lines/delete', async (req, res) => {
   if (!can.manageCalls(req.user)) return res.denied();
   await run('DELETE FROM lines WHERE number10 = ?', String(req.body.number10 || ''));
-  res.redirect('/calls');
-});
-
-calls.post('/code-mode', async (req, res) => {
-  if (!can.manageCalls(req.user)) return res.denied();
-  const until = req.body.off ? '' : new Date(Date.now() + 10 * 60e3).toISOString();
-  await run("INSERT INTO settings (key, value) VALUES ('code_mode_until', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", until);
-  res.flash(until ? 'Режим «принять код» включён на 10 минут.' : 'Режим «принять код» выключен.');
   res.redirect('/calls');
 });
 
