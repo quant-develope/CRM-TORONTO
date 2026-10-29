@@ -136,7 +136,8 @@ CREATE TABLE IF NOT EXISTS clients (
 CREATE TABLE IF NOT EXISTS lines (
   number10 TEXT PRIMARY KEY,
   number TEXT NOT NULL,
-  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  forward_to TEXT NOT NULL DEFAULT ''
 );
 
 -- Входящие SMS на номера телефонии.
@@ -238,6 +239,9 @@ async function migrate() {
   // Режим «принять код»: запись звонка и её расшифровка.
   if (!callColumns.includes('recording_url')) await run("ALTER TABLE calls ADD COLUMN recording_url TEXT NOT NULL DEFAULT ''");
   if (!callColumns.includes('transcript')) await run("ALTER TABLE calls ADD COLUMN transcript TEXT NOT NULL DEFAULT ''");
+  // Куда переадресовать звонок на этот номер (если пусто — на личный телефон оператора).
+  const lineColumns = (await all('PRAGMA table_info(lines)')).map((c) => c.name);
+  if (!lineColumns.includes('forward_to')) await run("ALTER TABLE lines ADD COLUMN forward_to TEXT NOT NULL DEFAULT ''");
 }
 
 // Вызывается в начале каждого запроса.

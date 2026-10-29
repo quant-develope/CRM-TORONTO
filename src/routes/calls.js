@@ -259,7 +259,10 @@ ${rows.map((c) => callRow(c))}
 ${lines.length ? html`<div class="table-wrap"><table>
 <tr><th>Номер</th><th>Оператор</th><th>Звонок идёт на</th>${quant ? html`<th></th>` : ''}</tr>
 ${lines.map((l) => html`<tr><td class="nowrap">${prettyPhone(l.number)}</td><td>${l.user_id ? fullName(l) : '—'}</td>
-  <td class="nowrap">${l.phone ? prettyPhone(l.phone) || l.phone : html`<span class="muted">телефона нет — на общую переадресацию</span>`}</td>
+  <td class="nowrap">${quant ? html`<form method="post" action="/calls/lines/forward" class="inline-edit"><input type="hidden" name="number10" value="${l.number10}">
+    <input name="forward_to" type="tel" value="${l.forward_to ? prettyPhone(l.forward_to) : ''}" placeholder="${l.phone ? `${prettyPhone(l.phone) || l.phone} (из карточки)` : 'на общую переадресацию'}" autocomplete="off">
+    <button class="secondary small">Сохранить</button></form>`
+    : l.forward_to ? prettyPhone(l.forward_to) : l.phone ? prettyPhone(l.phone) || l.phone : html`<span class="muted">на общую переадресацию</span>`}</td>
   ${quant ? html`<td><form method="post" action="/calls/lines/delete" class="inline"><input type="hidden" name="number10" value="${l.number10}"><button class="secondary small">Убрать</button></form></td>` : ''}</tr>`)}
 </table></div>` : html`<p class="muted">Номера пока не привязаны.</p>`}
 ${quant ? html`<form method="post" action="/calls/lines" class="grid">
@@ -304,6 +307,19 @@ calls.post('/lines', async (req, res) => {
   await run('INSERT INTO lines (number10, number, user_id) VALUES (?, ?, ?) ON CONFLICT (number10) DO UPDATE SET number = excluded.number, user_id = excluded.user_id',
     digits10(number), number, userId);
   res.flash(`Номер ${prettyPhone(number)} привязан.`);
+  res.redirect('/calls');
+});
+
+calls.post('/lines/forward', async (req, res) => {
+  if (!can.manageCalls(req.user)) return res.denied();
+  const raw = String(req.body.forward_to || '').trim();
+  const number = normalizePhone(raw);
+  if (raw && !number) {
+    res.flash('Номер для переадресации — 10 цифр, например +1 416 555-0100.');
+    return res.redirect('/calls');
+  }
+  await run('UPDATE lines SET forward_to = ? WHERE number10 = ?', number, String(req.body.number10 || ''));
+  res.flash(number ? `Звонки будут идти на ${prettyPhone(number)}.` : 'Звонки пойдут на телефон оператора из карточки или на общую переадресацию.');
   res.redirect('/calls');
 });
 

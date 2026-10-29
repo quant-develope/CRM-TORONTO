@@ -455,3 +455,5 @@ form.search input { min-width: 240px; }
 tr.mine td { background: #eefbf2; }
 .mine-tag { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--st-green); color: #fff; font-size: 12px; font-weight: 600; }
 .lead-site { margin-bottom: 6px; }
+form.inline-edit { display: flex; gap: 8px; align-items: center; }
+form.inline-edit input { min-width: 180px; }

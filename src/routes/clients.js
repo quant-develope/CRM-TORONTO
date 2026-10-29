@@ -31,7 +31,7 @@ function normalizePhone(phone) {
 async function lineFor(number) {
   const d = digits10(number);
   if (d.length < 10) return null;
-  const line = await get(`SELECT l.*, u.phone AS user_phone FROM lines l JOIN users u ON u.id = l.user_id
+  const line = await get(`SELECT l.*, CASE WHEN l.forward_to != '' THEN l.forward_to ELSE u.phone END AS user_phone FROM lines l JOIN users u ON u.id = l.user_id
                           WHERE l.number10 = ? AND u.active = 1`, d);
   if (line) return line;
   const sites = await all('SELECT id, phones FROM sites');
