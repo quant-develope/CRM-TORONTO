@@ -91,7 +91,8 @@ twilio.post('/voice', async (req, res) => {
   if (await codeModeUntil()) {
     await run("INSERT OR IGNORE INTO calls (call_sid, from_number, to_number, status) VALUES (?, ?, ?, 'recorded')", sid, from, to);
     await addEvent(req, { status: 'call', title: `🎙 Записываю звонок ${prettyPhone(from) || 'со скрытого номера'}`, body: 'Режим «принять код»: расшифровка появится в «Звонках»', url: '/calls' });
-    return twiml(res, '<Pause length="1"/><Record maxLength="90" timeout="15" playBeep="false" trim="do-not-trim" action="/twilio/recorded" transcribe="true" transcribeCallback="/twilio/transcript"/><Hangup/>');
+    // Робот (например, WhatsApp) просит «нажмите 1, чтобы получить код»: ждём начала фразы и нажимаем 1 дважды с паузой 2 секунды.
+    return twiml(res, '<Pause length="3"/><Play digits="1wwww1"/><Record maxLength="90" timeout="15" playBeep="false" trim="do-not-trim" action="/twilio/recorded" transcribe="true" transcribeCallback="/twilio/transcript"/><Hangup/>');
   }
   // Номер, на который позвонили, принадлежит оператору: клиент закрепляется за ним, звонок идёт на его личный телефон.
   const line = await lineFor(to);
@@ -240,7 +241,7 @@ calls.get('/', async (req, res) => {
 ${quant ? html`<div class="notice">
   ${codeUntil ? html`<b>Режим «принять код» включён</b> до ${date(utcToLocal(codeUntil.slice(0, 19).replace('T', ' ')))}: звонки не переадресуются, а записываются и расшифровываются.
     <form method="post" action="/calls/code-mode" class="inline"><input type="hidden" name="off" value="1"><button class="secondary small">Выключить</button></form>`
-    : html`<b>Принять код по звонку.</b> На 10 минут звонки не переадресуются: CRM сама берёт трубку, записывает до 90 секунд и показывает расшифровку здесь.
+    : html`<b>Принять код по звонку.</b> На 10 минут звонки не переадресуются: CRM сама берёт трубку, нажимает «1» (для кода WhatsApp), записывает до 90 секунд и показывает расшифровку здесь.
     <form method="post" action="/calls/code-mode" class="inline"><button class="small">Включить на 10 минут</button></form>`}
 </div>` : ''}
 ${sms.length ? html`<h2>SMS</h2><div class="table-wrap"><table>
