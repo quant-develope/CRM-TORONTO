@@ -47,6 +47,7 @@ const can = {
   manageCalls: (u) => is(u, 'quant', 'web'),
   manageSites: (u) => is(u, 'quant', 'web'),
   viewAuthLog: (u) => is(u, 'quant', 'web'),
+  settleCash: (u) => is(u, 'quant', 'web'),
 };
 
 module.exports = { ROLES, STAFF_ROLES, OFFICE, STATUS, STEPS, ACTIVE, PAY_METHODS, PAY_HOW, paidAmount, paidMethod, paidDiffers, is, can };

@@ -55,7 +55,9 @@ CREATE TABLE IF NOT EXISTS orders (
   done_at TEXT,
   cancelled_at TEXT,
   paid_amount REAL,
-  paid_method TEXT
+  paid_method TEXT,
+  settled_at TEXT,
+  settled_by INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
 
 -- События для уведомлений. target_user_id — кому (водителю о новой заявке); NULL — всем Quant и КЦ (смена статуса).
@@ -204,6 +206,9 @@ async function migrate() {
   const orderColumns = orders;
   if (!orderColumns.includes('paid_amount')) await run('ALTER TABLE orders ADD COLUMN paid_amount REAL');
   if (!orderColumns.includes('paid_method')) await run('ALTER TABLE orders ADD COLUMN paid_method TEXT');
+  // Наличные по заявке сданы (Quant отмечает в профиле водителя).
+  if (!orderColumns.includes('settled_at')) await run('ALTER TABLE orders ADD COLUMN settled_at TEXT');
+  if (!orderColumns.includes('settled_by')) await run('ALTER TABLE orders ADD COLUMN settled_by INTEGER REFERENCES users(id) ON DELETE SET NULL');
   // Клиент заявки и звонка (база клиентов).
   if (!orderColumns.includes('client_id')) await run('ALTER TABLE orders ADD COLUMN client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL');
   const callColumns = calls;

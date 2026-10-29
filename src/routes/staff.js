@@ -44,7 +44,7 @@ r.get('/', async (req, res) => {
 <div class="table-wrap"><table class="staff-table">
 <tr><th>Имя</th><th>Роль</th><th>Телефон</th><th>Логин</th><th>Сайты</th><th>Заявки — ${dayLabel}</th><th>Статус</th><th></th></tr>
 ${rows.map((u) => html`<tr class="${u.active ? '' : 'inactive'}">
-  <td>${fullName(u)}${u.active ? '' : html` <span class="muted small">(отключён)</span>`}</td>
+  <td>${u.role === 'driver' && can.manageOrders(req.user) ? html`<a href="/report/driver/${u.id}">${fullName(u)}</a>` : fullName(u)}${u.active ? '' : html` <span class="muted small">(отключён)</span>`}</td>
   <td data-label="Роль">${roleTag(u.role)}</td>
   <td data-label="Телефон" class="nowrap">${phoneLink(u.phone)}</td>
   <td data-label="Логин">${u.login}</td>
