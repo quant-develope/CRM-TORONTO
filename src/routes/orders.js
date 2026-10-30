@@ -80,7 +80,6 @@ async function form(o, { action, submit, callId }) {
     <h2 class="wide">Адрес</h2>
     <label class="wide">Адрес или ссылка на карту<input name="address" value="${o.address || ''}" required autocomplete="off" placeholder="123 Queen St W, Toronto, ON"></label>
     <div class="wide house-view" data-house hidden>
-      <div class="house-pane"><div class="house-sat" data-house-sat></div><span class="muted small">Спутник, вид сверху</span></div>
       <div class="house-pane" data-house-sv hidden></div>
       <a class="button secondary small-btn" data-house-link target="_blank" rel="noopener">Открыть Street View ↗</a>
     </div>
