@@ -500,7 +500,9 @@ form.inline-edit input { min-width: 180px; }
 .map-card li { margin-bottom: 4px; }
 .map-card-current { font-weight: 600; }
 .map-card .muted { font-weight: 400; }
-.map-client.past span { background: var(--st-gray); }
+.map-client.none span { background: var(--st-gray); }
+.map-client.done span { background: var(--st-blue); }
+.md-done { background: var(--st-blue); }
 .md-past { background: var(--st-gray); }
 .map-card-trip { font-weight: 600; }
 .home-map { margin-top: 32px; display: flex; flex-direction: column; gap: 10px; }

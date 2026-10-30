@@ -213,42 +213,58 @@ r.get('/suggest', async (req, res) => {
   });
 });
 
-// Карта на главной: клиенты с активными заявками (show=all — все клиенты из базы) и водители в сети.
-// fresh=1 — попросить телефоны водителей прислать свежую точку (кнопка «Обновить водителей»).
+// Карта на главной: клиенты с активными заявками; show=done — отработанные (есть выполненные заявки);
+// show=all — все клиенты из базы. fresh=1 — попросить телефоны водителей прислать свежую точку (кнопка «Обновить водителей»).
 r.get('/map-data', async (req, res) => {
-  const showAll = req.query.show === 'all';
-  const orders = await all(`SELECT o.id, o.client_id, o.client_name, o.client_phone, o.address, o.status, o.arrive_at,
+  const show = ['active', 'done', 'all'].includes(req.query.show) ? req.query.show : 'active';
+  const orders = show === 'done' ? [] : await all(`SELECT o.id, o.client_id, o.client_name, o.client_phone, o.address, o.status, o.arrive_at,
                               u.first_name, u.last_name, u.login FROM orders o LEFT JOIN users u ON u.id = o.driver_id
                             WHERE o.status IN (${ACTIVE_SQL}) ORDER BY o.arrive_at, o.id`);
-  const clients = showAll ? await all("SELECT id, name, phone, address FROM clients WHERE address != '' ORDER BY id DESC LIMIT 1000") : [];
-  // Один пин на адрес: клиент и его активные заявки.
+  const done = show === 'active' ? [] : await all(`SELECT address, MAX(client_id) AS client_id, MAX(client_name) AS client_name,
+                              MAX(client_phone) AS client_phone, COUNT(*) AS n FROM orders WHERE status = 'done' GROUP BY address`);
+  const clients = show === 'all' ? await all("SELECT id, name, phone, address FROM clients WHERE address != '' ORDER BY id DESC LIMIT 1000") : [];
+  // Один пин на адрес: клиент, его активные заявки и сколько заявок выполнено.
   const byAddress = new Map();
-  const pin = (address) => {
+  const pin = (address, { name, phone, clientId }) => {
     const key = String(address || '').trim().slice(0, 500);
-    if (!byAddress.has(key)) byAddress.set(key, { address: key, name: '', phone: '', clientId: null, orders: [] });
-    return byAddress.get(key);
+    if (!byAddress.has(key)) byAddress.set(key, { address: key, name: '', phone: '', clientId: null, orders: [], done: 0 });
+    const p = byAddress.get(key);
+    p.name = p.name || name || '';
+    p.phone = p.phone || phone || '';
+    p.clientId = p.clientId || clientId || null;
+    return p;
   };
   for (const o of orders) {
-    const p = pin(o.address);
-    p.name = p.name || o.client_name;
-    p.phone = p.phone || o.client_phone;
-    p.clientId = p.clientId || o.client_id;
-    p.orders.push({ id: o.id, when: when(o.arrive_at), status: STATUS[o.status][0], driver: fullName(o) });
+    pin(o.address, { name: o.client_name, phone: o.client_phone, clientId: o.client_id })
+      .orders.push({ id: o.id, when: when(o.arrive_at), status: STATUS[o.status][0], driver: fullName(o) });
   }
-  for (const c of clients) {
-    const p = pin(c.address);
-    p.name = p.name || c.name;
-    p.phone = p.phone || c.phone;
-    p.clientId = p.clientId || c.id;
-  }
+  for (const d of done) pin(d.address, { name: d.client_name, phone: d.client_phone, clientId: d.client_id }).done = d.n;
+  for (const c of clients) pin(c.address, { name: c.name, phone: c.phone, clientId: c.id });
   const { points, pending } = await geocodeMany([...byAddress.keys()]);
   const drivers = await driverPoints();
   if (req.query.fresh === '1') await requestGeo((await all("SELECT id FROM users WHERE role = 'driver' AND active = 1 AND online = 1")).map((d) => d.id));
+  // kind: active — есть активная заявка, done — отработанный (были выполненные), none — заявок не было.
+  const kind = (p) => (p.orders.length ? 'active' : p.done ? 'done' : 'none');
   json(res, {
-    clients: [...byAddress.values()].filter((p) => points.has(p.address)).map((p) => ({ ...p, ...points.get(p.address), active: p.orders.length > 0 })),
+    clients: [...byAddress.values()].filter((p) => points.has(p.address)).map((p) => ({ ...p, ...points.get(p.address), kind: kind(p) })),
     notFound: [...byAddress.keys()].filter((a) => !points.has(a)).length - pending,
     pending,
     points: drivers.map((d) => ({ id: d.id, name: fullName(d), lat: d.lat, lng: d.lng, jobs: d.jobs, info: `${jobsText(d.jobs)} · точка ${ageText(d.geo_age)}`, trip: '' })),
+  });
+});
+
+// Все работы с клиентом (карточка клиента на карте): по клиенту из базы и по адресу.
+r.get('/client-jobs', async (req, res) => {
+  const rows = await all(`SELECT o.id, o.status, o.arrive_at, o.done_at, o.price, o.pay_method, o.paid_amount, o.paid_method, o.address,
+                            u.first_name, u.last_name, u.login FROM orders o LEFT JOIN users u ON u.id = o.driver_id
+                          WHERE (o.client_id = ? AND o.client_id IS NOT NULL) OR o.address = ?
+                          ORDER BY COALESCE(o.done_at, o.cancelled_at, o.arrive_at) DESC, o.id DESC LIMIT 50`,
+  Number(req.query.client) || null, String(req.query.address || '').trim());
+  json(res, {
+    jobs: rows.map((o) => ({
+      id: o.id, when: date(o.status === 'done' ? o.done_at : o.arrive_at), status: STATUS[o.status][0], driver: o.login ? fullName(o) : '—',
+      money: money(o.status === 'done' ? paidAmount(o) : o.price), address: o.address,
+    })),
   });
 });
 
