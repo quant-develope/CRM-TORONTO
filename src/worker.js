@@ -34,11 +34,11 @@ app.use(async (req, res, next) => {
   const secure = req.url.protocol === 'https:';
   // Сообщение показывается сразу на этой странице или, после redirect, на следующей (через cookie).
   res.flash = (message) => { res.flashMessage = message; };
-  res.page = (title, body, { refresh } = {}) => {
+  res.page = (title, body, { refresh, softRefresh } = {}) => {
     const flash = res.flashMessage || req.cookies[FLASH];
     res.flashMessage = null;
     if (req.cookies[FLASH]) res.cookie(FLASH, '', { maxAge: 0, secure });
-    res.send(String(layout({ user: req.user, title, body, path: (req.baseUrl + req.path).replace(/\/$/, '') || '/', flash, refresh })));
+    res.send(String(layout({ user: req.user, title, body, path: (req.baseUrl + req.path).replace(/\/$/, '') || '/', flash, refresh, softRefresh })));
   };
   res.denied = () => res.status(403).page('Нет доступа', html`<p>У вашей роли нет прав на это действие.</p><p><a href="/">На главную</a></p>`);
   req.secure = secure;

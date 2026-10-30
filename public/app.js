@@ -39,7 +39,14 @@ document.addEventListener('keydown', (event) => {
 // --- Геолокация работника ---
 // Точка отправляется не постоянно, а когда CRM попросила (флаг geo в /api/events), при «Принять» и по кнопке разрешения.
 const geoOn = document.documentElement.dataset.geo === '1';
+const iphone = /iphone|ipad/i.test(navigator.userAgent);
 let geoBusy = false;
+
+// Браузер уже отдавал точку: плашку больше не показываем (Safari на iPhone не сообщает «разрешено» через permissions).
+const store = {
+  get: (k) => { try { return localStorage.getItem(k); } catch (err) { return null; } },
+  set: (k, v) => { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (err) { /* без хранилища */ } },
+};
 
 function sendGeo({ timeout = 15000 } = {}) {
   return new Promise((resolve) => {
@@ -47,6 +54,7 @@ function sendGeo({ timeout = 15000 } = {}) {
     geoBusy = true;
     const done = (ok) => { geoBusy = false; geoState(); resolve(ok); };
     navigator.geolocation.getCurrentPosition(async (pos) => {
+      store.set('geoOk', '1');
       try {
         await fetch('/api/geo', {
           method: 'POST', credentials: 'same-origin', keepalive: true, headers: { 'content-type': 'application/json' },
@@ -54,11 +62,15 @@ function sendGeo({ timeout = 15000 } = {}) {
         });
       } catch (err) { /* нет связи — CRM попросит ещё раз */ }
       done(true);
-    }, () => done(false), { enableHighAccuracy: true, timeout, maximumAge: 30000 });
+    }, (err) => {
+      if (err.code === 1) store.set('geoOk', null);
+      done(false);
+    }, { enableHighAccuracy: true, timeout, maximumAge: 30000 });
   });
 }
 
-// Плашка «Разрешить геолокацию»: видна, пока доступ не дан.
+// Плашка «Разрешить геолокацию»: видна, пока доступ не дан. На iPhone после первого разрешения —
+// один раз подсказка, как разрешить навсегда (иначе Safari спрашивает снова при каждом открытии сайта).
 async function geoState() {
   const box = document.querySelector('[data-geo-banner]');
   if (!box || !geoOn) return;
@@ -72,27 +84,77 @@ async function geoState() {
   }
   let state = 'prompt';
   try { state = (await navigator.permissions.query({ name: 'geolocation' })).state; } catch (err) { /* старый браузер — покажем кнопку */ }
-  if (state === 'granted') { box.hidden = true; return; }
   if (state === 'denied') {
-    status.textContent = 'Геолокация запрещена. Разрешите её для этого сайта в настройках браузера (на iPhone: Настройки → Safari → Геопозиция), иначе система не сможет предлагать вам заявки рядом.';
+    store.set('geoOk', null);
+    status.textContent = iphone
+      ? 'Геолокация запрещена. В Safari нажмите «аА» слева от адреса → «Настройки веб-сайта» → «Геопозиция» → «Разрешить».'
+      : 'Геолокация запрещена. Разрешите её для этого сайта в настройках браузера, иначе система не сможет предлагать вам заявки рядом.';
     button.hidden = true;
+    box.hidden = false;
+    return;
+  }
+  if (state === 'granted' || store.get('geoOk')) {
+    if (iphone && !store.get('geoTip')) {
+      status.textContent = 'Готово. Чтобы iPhone больше не спрашивал: в Safari нажмите «аА» слева от адреса → «Настройки веб-сайта» → «Геопозиция» → «Разрешить». Если CRM открыта с экрана «Домой»: Настройки → Конфиденциальность → Службы геолокации → Сайты Safari → «При использовании».';
+      button.textContent = 'Понятно';
+      button.dataset.tip = '1';
+      button.hidden = false;
+      box.hidden = false;
+      return;
+    }
+    box.hidden = true;
+    return;
   }
   box.hidden = false;
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  if (!geoOn) return;
-  geoState();
-  document.querySelectorAll('[data-geo-button]').forEach((b) => b.addEventListener('click', () => sendGeo()));
+if (geoOn) {
+  document.addEventListener('DOMContentLoaded', geoState);
+  document.addEventListener('click', (event) => {
+    const b = event.target.closest('[data-geo-button]');
+    if (!b) return;
+    if (b.dataset.tip) { store.set('geoTip', '1'); geoState(); return; }
+    sendGeo();
+  });
   // «Принять» заявку: сначала точка (откуда работник выезжает), потом переход в навигатор.
-  document.querySelectorAll('form[action$="/accept"]').forEach((form) => form.addEventListener('submit', async (event) => {
-    if (form.dataset.sent) return;
+  document.addEventListener('submit', async (event) => {
+    const form = event.target;
+    if (!form.matches('form[action$="/accept"]') || form.dataset.sent) return;
     event.preventDefault();
     form.dataset.sent = '1';
     await sendGeo({ timeout: 5000 });
     form.submit();
-  }));
-});
+  });
+}
+
+// Страница работника без заявки в работе обновляется сама, но без перезагрузки: только содержимое.
+// Так новая заявка появляется сразу, а браузер не спрашивает геолокацию заново после каждой перезагрузки.
+const softRefresh = Number(document.documentElement.dataset.softRefresh) || 0;
+let lastMain = null;
+if (softRefresh) {
+  setInterval(async () => {
+    if (document.hidden || document.activeElement?.closest('input, textarea, select') || document.querySelector('details[open]')) return;
+    try {
+      const res = await fetch(location.href, { credentials: 'same-origin', cache: 'no-store' });
+      if (!res.ok || res.redirected) return;
+      const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+      const fresh = doc.querySelector('main');
+      const main = document.querySelector('main');
+      if (!fresh || !main || fresh.innerHTML === lastMain) return;
+      lastMain = fresh.innerHTML;
+      // Плашки сохраняют своё состояние (скрыта / показана), остальное заменяется.
+      const keep = [...main.querySelectorAll('[data-geo-banner], [data-push]')];
+      main.innerHTML = fresh.innerHTML;
+      for (const old of keep) {
+        const sel = old.matches('[data-geo-banner]') ? '[data-geo-banner]' : '[data-push]';
+        const slot = main.querySelector(sel);
+        if (slot) slot.replaceWith(old);
+      }
+      // Заявка взята в работу — дальше страница больше не обновляется сама.
+      if (!doc.documentElement.dataset.softRefresh) location.reload();
+    } catch (err) { /* нет связи — в следующий раз */ }
+  }, softRefresh * 1000);
+}
 
 // --- Расстояние до работника и системное предложение (КЦ, Веб, Quant) ---
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
