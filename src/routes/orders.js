@@ -79,6 +79,11 @@ async function form(o, { action, submit, callId }) {
 
     <h2 class="wide">Адрес</h2>
     <label class="wide">Адрес или ссылка на карту<input name="address" value="${o.address || ''}" required autocomplete="off" placeholder="123 Queen St W, Toronto, ON"></label>
+    <div class="wide house-view" data-house hidden>
+      <div class="house-pane"><div class="house-sat" data-house-sat></div><span class="muted small">Спутник, вид сверху</span></div>
+      <div class="house-pane" data-house-sv hidden></div>
+      <a class="button secondary small-btn" data-house-link target="_blank" rel="noopener">Открыть Street View ↗</a>
+    </div>
     <div class="wide"><button type="button" class="secondary small-btn" data-map-open>Открыть карту: клиент и водители</button></div>
     <div class="wide order-map-wrap" data-map-wrap hidden>
       <div class="order-map" data-map></div>
@@ -200,6 +205,8 @@ r.get('/suggest', async (req, res) => {
     waiting: drivers.some((d) => !d.geo_at || d.geo_age >= 1),
     // Для карты: адрес клиента и водители в сети с известной точкой.
     target,
+    // Ключ Google Maps Embed API (секрет GOOGLE_MAPS_EMBED_KEY в Cloudflare) — встроенный Street View; без него — ссылка.
+    streetViewKey: req.env.GOOGLE_MAPS_EMBED_KEY || '',
     points: drivers.filter((d) => d.lat !== null && d.geo_at).map((d) => ({
       id: d.id, name: fullName(d), info: `${jobsText(d.jobs)} · точка ${ageText(d.geo_age)}`, lat: d.lat, lng: d.lng, jobs: d.jobs,
       trip: d.trip ? `${kmText(d.trip.km)}, ~${d.trip.min} мин${d.trip.rough ? ' (по прямой)' : ''}` : '',

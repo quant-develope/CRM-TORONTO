@@ -306,11 +306,13 @@ function setupSuggest(box) {
         if (d.best && (!select.value || autoPicked)) { select.value = d.best.id; autoPicked = true; }
         render(d);
         mapData(d);
+        houseData(d);
         if (!d.waiting) return;
       } catch (err) { return; }
     }
   };
   const mapData = setupMap(form, () => load());
+  const houseData = setupHouse(form);
   select.addEventListener('change', () => { autoPicked = false; });
   address.addEventListener('change', load);
   if (address.value.trim()) load();
@@ -395,6 +397,55 @@ function driverMarker(p) {
     .bindTooltip(p.trip ? `${p.name} · ${p.trip}` : p.name).bindPopup('Загрузка…', { maxWidth: 280 });
   m.on('popupopen', async () => m.setPopupContent(await driverCard(p)));
   return m;
+}
+
+// Дом по адресу: спутниковый снимок сверху (виден драйвей) и Google Street View.
+function setupHouse(form) {
+  const box = form.querySelector('[data-house]');
+  if (!box) return () => {};
+  let sat = null;
+  let pin = null;
+  let shown = '';
+  return async (d) => {
+    if (!d.target) { box.hidden = true; shown = ''; return; }
+    const { lat, lng } = d.target;
+    const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+    if (key === shown) return;
+    shown = key;
+    box.hidden = false;
+    box.querySelector('[data-house-link]').href = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${key}`;
+    const sv = box.querySelector('[data-house-sv]');
+    if (d.streetViewKey) {
+      const q = new URLSearchParams({ key: d.streetViewKey, location: key, fov: '90' });
+      let frame = sv.querySelector('iframe');
+      if (!frame) {
+        frame = document.createElement('iframe');
+        frame.loading = 'lazy';
+        frame.referrerPolicy = 'no-referrer-when-downgrade';
+        frame.allowFullscreen = true;
+        frame.title = 'Street View';
+        sv.append(frame);
+      }
+      frame.src = `https://www.google.com/maps/embed/v1/streetview?${q}`;
+      sv.hidden = false;
+    }
+    try {
+      const L = await loadLeaflet();
+      if (!sat) {
+        sat = L.map(box.querySelector('[data-house-sat]'), { scrollWheelZoom: false }).setView([lat, lng], 19);
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+          maxZoom: 21, maxNativeZoom: 19, attribution: 'Снимок © Esri, Maxar',
+        }).addTo(sat);
+        pin = L.marker([lat, lng], { icon: clientIcon(true) }).addTo(sat);
+      } else {
+        sat.setView([lat, lng], 19);
+        pin.setLatLng([lat, lng]);
+      }
+      sat.invalidateSize();
+    } catch (err) {
+      box.querySelector('[data-house-sat]').textContent = 'Снимок не загрузился.';
+    }
+  };
 }
 
 // Возвращает функцию, которой форма передаёт свежие данные системного предложения.
