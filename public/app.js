@@ -306,11 +306,13 @@ function setupSuggest(box) {
         if (d.best && (!select.value || autoPicked)) { select.value = d.best.id; autoPicked = true; }
         render(d);
         mapData(d);
+        houseData(d);
         if (!d.waiting) return;
       } catch (err) { return; }
     }
   };
   const mapData = setupMap(form, () => load());
+  const houseData = setupHouse(form);
   select.addEventListener('change', () => { autoPicked = false; });
   address.addEventListener('change', load);
   if (address.value.trim()) load();
@@ -395,6 +397,35 @@ function driverMarker(p) {
     .bindTooltip(p.trip ? `${p.name} · ${p.trip}` : p.name).bindPopup('Загрузка…', { maxWidth: 280 });
   m.on('popupopen', async () => m.setPopupContent(await driverCard(p)));
   return m;
+}
+
+// Дом по адресу: Google Street View — видно, насколько большой драйвей.
+// С ключом Maps Embed API — прямо в форме, без ключа — кнопкой в Google Карты.
+function setupHouse(form) {
+  const box = form.querySelector('[data-house]');
+  if (!box) return () => {};
+  let shown = '';
+  return (d) => {
+    if (!d.target) { box.hidden = true; shown = ''; return; }
+    const key = `${d.target.lat.toFixed(6)},${d.target.lng.toFixed(6)}`;
+    if (key === shown) return;
+    shown = key;
+    box.hidden = false;
+    box.querySelector('[data-house-link]').href = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${key}`;
+    if (!d.streetViewKey) return;
+    const sv = box.querySelector('[data-house-sv]');
+    let frame = sv.querySelector('iframe');
+    if (!frame) {
+      frame = document.createElement('iframe');
+      frame.loading = 'lazy';
+      frame.referrerPolicy = 'no-referrer-when-downgrade';
+      frame.allowFullscreen = true;
+      frame.title = 'Street View';
+      sv.append(frame);
+    }
+    frame.src = `https://www.google.com/maps/embed/v1/streetview?${new URLSearchParams({ key: d.streetViewKey, location: key, fov: '90' })}`;
+    sv.hidden = false;
+  };
 }
 
 // Возвращает функцию, которой форма передаёт свежие данные системного предложения.
