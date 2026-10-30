@@ -474,3 +474,8 @@ form.inline-edit input { min-width: 180px; }
 .suggest p { margin: 6px 0 0; }
 .suggest-others { margin: 8px 0 0; padding-left: 18px; color: var(--muted); }
 .distance .small:empty { display: none; }
+.geo-help { display: flex; flex-direction: column; gap: 10px; }
+.geo-help-item ol { margin: 4px 0 0; padding-left: 20px; }
+.geo-help details summary { cursor: pointer; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+.geo-help details[open] summary { margin-bottom: 8px; }
+.geo-help details .geo-help-item + .geo-help-item { margin-top: 8px; }

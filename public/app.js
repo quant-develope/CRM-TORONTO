@@ -39,7 +39,9 @@ document.addEventListener('keydown', (event) => {
 // --- Геолокация работника ---
 // Точка отправляется не постоянно, а когда CRM попросила (флаг geo в /api/events), при «Принять» и по кнопке разрешения.
 const geoOn = document.documentElement.dataset.geo === '1';
-const iphone = /iphone|ipad/i.test(navigator.userAgent);
+// iPad с iPadOS 13+ представляется как Mac — отличаем по сенсорному экрану.
+const iphone = /iphone|ipad|ipod/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+const android = /android/i.test(navigator.userAgent);
 let geoBusy = false;
 
 // Браузер уже отдавал точку: плашку больше не показываем (Safari на iPhone не сообщает «разрешено» через permissions).
@@ -69,6 +71,69 @@ function sendGeo({ timeout = 15000 } = {}) {
   });
 }
 
+// Как разрешить геолокацию навсегда: отдельно для iPhone / Android / компьютера и для браузера / приложения с экрана «Домой».
+const GEO_HELP = [
+  { id: 'iphone-browser', title: 'iPhone, в браузере Safari', steps: [
+    'Нажмите «аА» слева от адреса сайта.',
+    '«Настройки веб-сайта» → «Геопозиция».',
+    'Выберите «Разрешить».',
+  ] },
+  { id: 'iphone-app', title: 'iPhone, приложение с экрана «Домой»', steps: [
+    'Откройте «Настройки» iPhone → «Конфиденциальность и безопасность» → «Службы геолокации» (должны быть включены).',
+    'Пролистайте до «Сайты Safari» и выберите «При использовании приложения».',
+    'Включите «Точная геопозиция».',
+  ] },
+  { id: 'android-browser', title: 'Android, в браузере Chrome', steps: [
+    'Нажмите значок настроек слева от адреса сайта.',
+    '«Разрешения» → «Местоположение».',
+    'Выберите «Разрешить». На телефоне должна быть включена геолокация (шторка → «Местоположение»).',
+  ] },
+  { id: 'android-app', title: 'Android, приложение с экрана «Домой»', steps: [
+    'Откройте Chrome → меню ⋮ → «Настройки» → «Настройки сайтов» → «Местоположение».',
+    'Найдите сайт CRM (crm-toronto1…) и выберите «Разрешить».',
+    'Проверьте, что геолокация на телефоне включена (шторка → «Местоположение»).',
+  ] },
+  { id: 'computer', title: 'Компьютер', steps: [
+    'Нажмите значок слева от адреса сайта.',
+    'В «Разрешениях» для «Местоположение» выберите «Разрешить».',
+  ] },
+];
+const geoDevice = iphone ? `iphone-${standalone ? 'app' : 'browser'}` : android ? `android-${standalone ? 'app' : 'browser'}` : 'computer';
+
+function helpBlock({ title, steps }, tag = 'div') {
+  const block = document.createElement(tag);
+  block.className = 'geo-help-item';
+  const h = document.createElement('b');
+  h.textContent = title;
+  const ol = document.createElement('ol');
+  for (const step of steps) {
+    const li = document.createElement('li');
+    li.textContent = step;
+    ol.append(li);
+  }
+  block.append(h, ol);
+  return block;
+}
+
+// Инструкция для этого устройства, остальные — под «Другое устройство».
+function geoHelp(box, show) {
+  let help = box.querySelector('[data-geo-help]');
+  if (!help) {
+    help = document.createElement('div');
+    help.className = 'geo-help';
+    help.dataset.geoHelp = '';
+    box.querySelector('[data-geo-button]').before(help);
+  }
+  help.hidden = !show;
+  if (!show || help.childElementCount) return;
+  help.append(helpBlock(GEO_HELP.find((h) => h.id === geoDevice)));
+  const other = document.createElement('details');
+  const summary = document.createElement('summary');
+  summary.textContent = 'Другое устройство';
+  other.append(summary, ...GEO_HELP.filter((h) => h.id !== geoDevice).map((h) => helpBlock(h)));
+  help.append(other);
+}
+
 // Плашка «Разрешить геолокацию»: видна, пока доступ не дан. На iPhone после первого разрешения —
 // один раз подсказка, как разрешить навсегда (иначе Safari спрашивает снова при каждом открытии сайта).
 async function geoState() {
@@ -86,16 +151,16 @@ async function geoState() {
   try { state = (await navigator.permissions.query({ name: 'geolocation' })).state; } catch (err) { /* старый браузер — покажем кнопку */ }
   if (state === 'denied') {
     store.set('geoOk', null);
-    status.textContent = iphone
-      ? 'Геолокация запрещена. В Safari нажмите «аА» слева от адреса → «Настройки веб-сайта» → «Геопозиция» → «Разрешить».'
-      : 'Геолокация запрещена. Разрешите её для этого сайта в настройках браузера, иначе система не сможет предлагать вам заявки рядом.';
+    status.textContent = 'Геолокация запрещена — система не сможет предлагать вам заявки рядом. Как разрешить:';
+    geoHelp(box, true);
     button.hidden = true;
     box.hidden = false;
     return;
   }
   if (state === 'granted' || store.get('geoOk')) {
-    if (iphone && !store.get('geoTip')) {
-      status.textContent = 'Готово. Чтобы iPhone больше не спрашивал: в Safari нажмите «аА» слева от адреса → «Настройки веб-сайта» → «Геопозиция» → «Разрешить». Если CRM открыта с экрана «Домой»: Настройки → Конфиденциальность → Службы геолокации → Сайты Safari → «При использовании».';
+    if (iphone && !store.get('geoTip2')) {
+      status.textContent = 'Готово. Чтобы iPhone больше не спрашивал разрешение:';
+      geoHelp(box, true);
       button.textContent = 'Понятно';
       button.dataset.tip = '1';
       button.hidden = false;
@@ -105,6 +170,7 @@ async function geoState() {
     box.hidden = true;
     return;
   }
+  geoHelp(box, false);
   box.hidden = false;
 }
 
@@ -113,7 +179,7 @@ if (geoOn) {
   document.addEventListener('click', (event) => {
     const b = event.target.closest('[data-geo-button]');
     if (!b) return;
-    if (b.dataset.tip) { store.set('geoTip', '1'); geoState(); return; }
+    if (b.dataset.tip) { store.set('geoTip2', '1'); geoState(); return; }
     sendGeo();
   });
   // «Принять» заявку: сначала точка (откуда работник выезжает), потом переход в навигатор.
