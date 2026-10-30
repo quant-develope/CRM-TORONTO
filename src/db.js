@@ -157,6 +157,12 @@ CREATE TABLE IF NOT EXISTS geocodes (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Адреса, которые не нашлись на карте (неделю не ищем снова).
+CREATE TABLE IF NOT EXISTS geocode_misses (
+  address TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS orders_driver ON orders (driver_id, status);
 CREATE INDEX IF NOT EXISTS orders_status ON orders (status, arrive_at)
 `;

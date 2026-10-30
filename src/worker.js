@@ -148,7 +148,23 @@ ${pushBanner('Включите, чтобы узнавать, когда води
     ${upcoming.map((o) => html`<tr><td class="nowrap"><a href="/orders/${o.id}">${when(o.arrive_at)}</a></td><td>${o.address}</td><td>${fullName(o)}</td><td>${statusFlag(o.status)}</td></tr>`)}
     </table></div><p><a href="/orders">Все заявки →</a></p>` : html`<p class="muted">Активных заявок нет. <a href="/orders/new">Создать заявку →</a></p>`}
   </section>
-</div>`, { refresh: 60 });
+</div>
+<section class="home-map" data-home-map data-keep>
+  <div class="home-map-head">
+    <h2 class="flush">Карта</h2>
+    <div class="fchips">
+      <button type="button" class="fchip on" data-map-show="active">Актуальные клиенты</button>
+      <button type="button" class="fchip" data-map-show="all">Все клиенты</button>
+    </div>
+    <button type="button" class="secondary small-btn" data-map-fresh>Обновить водителей</button>
+  </div>
+  <div class="order-map" data-map></div>
+  <div class="map-legend small">
+    <span><i class="md md-client"></i>клиент с активной заявкой</span><span><i class="md md-client md-past"></i>клиент без заявки</span>
+    <span><i class="md md-green"></i>свободен</span><span><i class="md md-yellow"></i>на заказе, скоро освободится</span><span><i class="md md-orange"></i>2 заказа</span><span><i class="md md-red"></i>3 и больше</span>
+  </div>
+  <p class="muted small" data-map-note></p>
+</section>`, { softRefresh: 60 });
 });
 
 app.get('/drivers', async (req, res) => {

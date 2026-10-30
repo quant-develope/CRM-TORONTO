@@ -209,10 +209,10 @@ if (softRefresh) {
       if (!fresh || !main || fresh.innerHTML === lastMain) return;
       lastMain = fresh.innerHTML;
       // Плашки сохраняют своё состояние (скрыта / показана), остальное заменяется.
-      const keep = [...main.querySelectorAll('[data-geo-banner], [data-push]')];
+      const keep = [...main.querySelectorAll('[data-geo-banner], [data-push], [data-keep]')];
       main.innerHTML = fresh.innerHTML;
       for (const old of keep) {
-        const sel = old.matches('[data-geo-banner]') ? '[data-geo-banner]' : '[data-push]';
+        const sel = ['[data-geo-banner]', '[data-keep]', '[data-push]'].find((q) => old.matches(q));
         const slot = main.querySelector(sel);
         if (slot) slot.replaceWith(old);
       }
@@ -305,16 +305,233 @@ function setupSuggest(box) {
         // Водитель ещё не выбран — подставляем предложение.
         if (d.best && (!select.value || autoPicked)) { select.value = d.best.id; autoPicked = true; }
         render(d);
+        mapData(d);
         if (!d.waiting) return;
       } catch (err) { return; }
     }
   };
+  const mapData = setupMap(form, () => load());
   select.addEventListener('change', () => { autoPicked = false; });
   address.addEventListener('change', load);
   if (address.value.trim()) load();
 }
 
+// --- Карта в форме заявки: пин клиента и водители в сети по цвету загрузки ---
+const LEAFLET = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4';
+let leafletReady = null;
+function loadLeaflet() {
+  if (!leafletReady) {
+    leafletReady = new Promise((resolve, reject) => {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = `${LEAFLET}/leaflet.min.css`;
+      const js = document.createElement('script');
+      js.src = `${LEAFLET}/leaflet.min.js`;
+      js.onload = () => resolve(window.L);
+      js.onerror = () => { leafletReady = null; reject(new Error('leaflet')); };
+      document.head.append(css, js);
+    });
+  }
+  return leafletReady;
+}
+
+// Зелёный — свободен, жёлтый — одна заявка (скоро освободится), оранжевый — две, красный — три и больше.
+const loadColor = (jobs) => (jobs <= 0 ? '#16a34a' : jobs === 1 ? '#eab308' : jobs === 2 ? '#f97316' : '#dc2626');
+
+function el(tag, text, cls) {
+  const e = document.createElement(tag);
+  if (text !== undefined) e.textContent = text;
+  if (cls) e.className = cls;
+  return e;
+}
+
+// Карточка водителя: имя, выполнено, текущий этап и график заявок.
+async function driverCard(point) {
+  const box = el('div', undefined, 'map-card');
+  try {
+    const d = await (await fetch(`/orders/driver/${point.id}`, { credentials: 'same-origin', cache: 'no-store' })).json();
+    if (d.error) { box.append(el('p', d.error)); return box; }
+    box.append(el('b', d.name, 'map-card-name'));
+    if (d.phone) {
+      const tel = el('a', d.phone);
+      tel.href = `tel:${d.phone.replace(/[^\d+]/g, '')}`;
+      box.append(tel);
+    }
+    if (point.trip) box.append(el('div', `До заказа: ${point.trip}`, 'map-card-trip'));
+    box.append(el('div', point.info, 'muted'));
+    box.append(el('div', `Выполнено: сегодня ${d.doneToday}, всего ${d.doneTotal}`));
+    box.append(el('div', d.current ? `Сейчас: №${d.current.id} — ${d.current.step}` : 'Сейчас: свободен'));
+    if (d.schedule.length) {
+      box.append(el('div', `Предстоит заявок: ${d.schedule.length}`, 'map-card-h'));
+      const ol = el('ol');
+      for (const j of d.schedule) {
+        const li = el('li');
+        const a = el('a', `№${j.id}`);
+        a.href = `/orders/${j.id}`;
+        a.target = '_blank';
+        li.append(el('b', j.when), ' · ', a, ` · ${j.status}`, el('div', j.address, 'muted'));
+        if (j.current) li.className = 'map-card-current';
+        ol.append(li);
+      }
+      box.append(ol);
+    }
+  } catch (err) {
+    box.append(el('p', 'Не удалось загрузить данные водителя.'));
+  }
+  return box;
+}
+
+function makeMap(L, node) {
+  const map = L.map(node).setView([43.7, -79.42], 10);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+  return { map, layer: L.layerGroup().addTo(map) };
+}
+
+const clientIcon = (active) => window.L.divIcon({ className: `map-client${active ? '' : ' past'}`, html: '<span></span>', iconSize: [26, 34], iconAnchor: [13, 34] });
+
+// Водитель: кружок цвета загрузки; подсказка — имя и сколько ехать до заказа; по нажатию — карточка.
+function driverMarker(p) {
+  const m = window.L.circleMarker([p.lat, p.lng], { radius: 11, color: '#fff', weight: 3, fillColor: loadColor(p.jobs), fillOpacity: 1 })
+    .bindTooltip(p.trip ? `${p.name} · ${p.trip}` : p.name).bindPopup('Загрузка…', { maxWidth: 280 });
+  m.on('popupopen', async () => m.setPopupContent(await driverCard(p)));
+  return m;
+}
+
+// Возвращает функцию, которой форма передаёт свежие данные системного предложения.
+function setupMap(form, reload) {
+  const open = form.querySelector('[data-map-open]');
+  const wrap = form.querySelector('[data-map-wrap]');
+  if (!open || !wrap) return () => {};
+  let map = null;
+  let layer = null;
+  let last = null;
+  let fitted = '';
+  const draw = () => {
+    if (!map || !last) return;
+    const L = window.L;
+    layer.clearLayers();
+    const bounds = [];
+    if (last.target) {
+      L.marker([last.target.lat, last.target.lng], { icon: clientIcon(true), zIndexOffset: 1000 }).bindTooltip('Клиент').addTo(layer);
+      bounds.push([last.target.lat, last.target.lng]);
+    }
+    for (const p of last.points || []) {
+      driverMarker(p).addTo(layer);
+      bounds.push([p.lat, p.lng]);
+    }
+    // Масштаб подбираем, когда меняется адрес или набор водителей, а не при каждом обновлении.
+    const key = JSON.stringify(bounds.map((b) => b.map((x) => x.toFixed(3))));
+    if (key !== fitted) {
+      fitted = key;
+      if (bounds.length > 1) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
+      else if (bounds.length === 1) map.setView(bounds[0], 14);
+    }
+  };
+  open.addEventListener('click', async () => {
+    if (!wrap.hidden) { wrap.hidden = true; open.textContent = 'Открыть карту: клиент и водители'; return; }
+    wrap.hidden = false;
+    open.textContent = 'Скрыть карту';
+    try {
+      const L = await loadLeaflet();
+      if (!map) ({ map, layer } = makeMap(L, wrap.querySelector('[data-map]')));
+      map.invalidateSize();
+      if (last) draw(); else reload();
+    } catch (err) {
+      wrap.querySelector('[data-map]').textContent = 'Карта не загрузилась. Проверьте интернет и попробуйте ещё раз.';
+    }
+  });
+  return (d) => { last = d; draw(); };
+}
+
+// Карта на главной (Quant, Веб, КЦ): клиенты и водители в сети. Сама обновляется раз в минуту,
+// но свежую точку у водителей спрашивает только по кнопке «Обновить водителей».
+function clientCard(c) {
+  const box = el('div', undefined, 'map-card');
+  if (c.clientId) {
+    const a = el('a', c.name || 'Клиент', 'map-card-name');
+    a.href = `/clients/${c.clientId}`;
+    box.append(a);
+  } else box.append(el('b', c.name || 'Клиент', 'map-card-name'));
+  if (c.phone) {
+    const tel = el('a', c.phone);
+    tel.href = `tel:${c.phone.replace(/[^\d+]/g, '')}`;
+    box.append(tel);
+  }
+  box.append(el('div', c.address, 'muted'));
+  if (c.orders.length) {
+    const ol = el('ol');
+    for (const o of c.orders) {
+      const li = el('li');
+      const a = el('a', `№${o.id}`);
+      a.href = `/orders/${o.id}`;
+      li.append(el('b', o.when), ' · ', a, ` · ${o.status}`, el('div', `Водитель: ${o.driver}`, 'muted'));
+      ol.append(li);
+    }
+    box.append(ol);
+  } else if (c.clientId) {
+    const a = el('a', '+ Новая заявка');
+    a.href = `/orders/new?client=${c.clientId}`;
+    box.append(a);
+  }
+  return box;
+}
+
+async function setupHomeMap(section) {
+  const note = section.querySelector('[data-map-note]');
+  let L;
+  try { L = await loadLeaflet(); } catch (err) { section.querySelector('[data-map]').textContent = 'Карта не загрузилась. Проверьте интернет.'; return; }
+  const { map, layer } = makeMap(L, section.querySelector('[data-map]'));
+  let show = 'active';
+  let fit = true;
+  let run = 0;
+  const load = async ({ fresh = false } = {}) => {
+    const mine = ++run;
+    try {
+      const d = await (await fetch(`/orders/map-data?show=${show}${fresh ? '&fresh=1' : ''}`, { credentials: 'same-origin', cache: 'no-store' })).json();
+      if (mine !== run) return;
+      layer.clearLayers();
+      const bounds = [];
+      for (const c of d.clients) {
+        L.marker([c.lat, c.lng], { icon: clientIcon(c.active), zIndexOffset: c.active ? 500 : 0 })
+          .bindTooltip(c.name || c.address).bindPopup(() => clientCard(c), { maxWidth: 280 }).addTo(layer);
+        bounds.push([c.lat, c.lng]);
+      }
+      for (const p of d.points) {
+        driverMarker(p).addTo(layer);
+        bounds.push([p.lat, p.lng]);
+      }
+      if (fit && bounds.length) {
+        fit = false;
+        if (bounds.length > 1) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
+        else map.setView(bounds[0], 13);
+      }
+      const notes = [];
+      if (d.pending) notes.push(`Ищем на карте ещё ${d.pending} адресов…`);
+      if (d.notFound > 0) notes.push(`Не найдены на карте: ${d.notFound}.`);
+      if (!d.points.length) notes.push('Нет водителей в сети с известным местоположением.');
+      note.textContent = notes.join(' ');
+      // Адреса ищутся порциями — догружаем остальные.
+      if (d.pending) setTimeout(() => { if (mine === run) load(); }, 1500);
+    } catch (err) { /* нет связи — следующая попытка через минуту */ }
+  };
+  section.querySelectorAll('[data-map-show]').forEach((b) => b.addEventListener('click', () => {
+    show = b.dataset.mapShow;
+    section.querySelectorAll('[data-map-show]').forEach((x) => x.classList.toggle('on', x === b));
+    fit = true;
+    load();
+  }));
+  section.querySelector('[data-map-fresh]').addEventListener('click', async () => {
+    await load({ fresh: true });
+    // Телефоны водителей присылают точку в течение ~10 секунд.
+    setTimeout(load, 8000);
+    setTimeout(load, 16000);
+  });
+  load();
+  setInterval(() => { if (!document.hidden) load(); }, 60000);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('[data-home-map]').forEach((section) => setupHomeMap(section));
   document.querySelectorAll('[data-distance]').forEach((box) => loadDistance(box));
   document.querySelectorAll('[data-suggest]').forEach((box) => setupSuggest(box));
 });
