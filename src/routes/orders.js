@@ -2,12 +2,12 @@
 const { Router } = require('../mini');
 const { get, all, run } = require('../db');
 const { can, STATUS, STEPS, ACTIVE, PAY_METHODS, PAY_HOW, paidAmount, paidMethod, paidDiffers } = require('../roles');
-const { html, raw, whatsappButton, fullName, date, when, nowLocal, money, phoneLink, mapsLink, statusFlag, options } = require('../html');
+const { html, raw, whatsappButton, fullName, date, when, nowLocal, todayLocal, money, phoneLink, mapsLink, statusFlag, options } = require('../html');
 const { driversBoard, boardBlock, ACTIVE_SQL } = require('../board');
 const { notify } = require('../push');
 const { callPrefill } = require('./calls');
 const { ensureClient } = require('./clients');
-const { suggest, orderDistance, ageText, kmText } = require('../geo');
+const { suggest, orderDistance, ageText, kmText, geocodeMany, driverPoints, requestGeo } = require('../geo');
 
 const r = new Router();
 
@@ -79,6 +79,11 @@ async function form(o, { action, submit, callId }) {
 
     <h2 class="wide">Адрес</h2>
     <label class="wide">Адрес или ссылка на карту<input name="address" value="${o.address || ''}" required autocomplete="off" placeholder="123 Queen St W, Toronto, ON"></label>
+    <div class="wide"><button type="button" class="secondary small-btn" data-map-open>Открыть карту: клиент и водители</button></div>
+    <div class="wide order-map-wrap" data-map-wrap hidden>
+      <div class="order-map" data-map></div>
+      <div class="map-legend small"><span><i class="md md-green"></i>свободен</span><span><i class="md md-yellow"></i>на заказе, скоро освободится</span><span><i class="md md-orange"></i>2 заказа</span><span><i class="md md-red"></i>3 и больше</span><span><i class="md md-client"></i>клиент</span></div>
+    </div>
 
     <h2 class="wide">Во сколько приехать</h2>
     <label>Дата и время (Торонто)<input name="arrive_at" type="datetime-local" value="${localInput(o.arrive_at) || defaultArrive()}" required></label>
@@ -193,6 +198,72 @@ r.get('/suggest', async (req, res) => {
     others: others.slice(0, 4).map(view),
     text: notes.join(' '),
     waiting: drivers.some((d) => !d.geo_at || d.geo_age >= 1),
+    // Для карты: адрес клиента и водители в сети с известной точкой.
+    target,
+    points: drivers.filter((d) => d.lat !== null && d.geo_at).map((d) => ({
+      id: d.id, name: fullName(d), info: `${jobsText(d.jobs)} · точка ${ageText(d.geo_age)}`, lat: d.lat, lng: d.lng, jobs: d.jobs,
+      trip: d.trip ? `${kmText(d.trip.km)}, ~${d.trip.min} мин${d.trip.rough ? ' (по прямой)' : ''}` : '',
+    })),
+  });
+});
+
+// Карта на главной: клиенты с активными заявками (show=all — все клиенты из базы) и водители в сети.
+// fresh=1 — попросить телефоны водителей прислать свежую точку (кнопка «Обновить водителей»).
+r.get('/map-data', async (req, res) => {
+  const showAll = req.query.show === 'all';
+  const orders = await all(`SELECT o.id, o.client_id, o.client_name, o.client_phone, o.address, o.status, o.arrive_at,
+                              u.first_name, u.last_name, u.login FROM orders o LEFT JOIN users u ON u.id = o.driver_id
+                            WHERE o.status IN (${ACTIVE_SQL}) ORDER BY o.arrive_at, o.id`);
+  const clients = showAll ? await all("SELECT id, name, phone, address FROM clients WHERE address != '' ORDER BY id DESC LIMIT 1000") : [];
+  // Один пин на адрес: клиент и его активные заявки.
+  const byAddress = new Map();
+  const pin = (address) => {
+    const key = String(address || '').trim().slice(0, 500);
+    if (!byAddress.has(key)) byAddress.set(key, { address: key, name: '', phone: '', clientId: null, orders: [] });
+    return byAddress.get(key);
+  };
+  for (const o of orders) {
+    const p = pin(o.address);
+    p.name = p.name || o.client_name;
+    p.phone = p.phone || o.client_phone;
+    p.clientId = p.clientId || o.client_id;
+    p.orders.push({ id: o.id, when: when(o.arrive_at), status: STATUS[o.status][0], driver: fullName(o) });
+  }
+  for (const c of clients) {
+    const p = pin(c.address);
+    p.name = p.name || c.name;
+    p.phone = p.phone || c.phone;
+    p.clientId = p.clientId || c.id;
+  }
+  const { points, pending } = await geocodeMany([...byAddress.keys()]);
+  const drivers = await driverPoints();
+  if (req.query.fresh === '1') await requestGeo((await all("SELECT id FROM users WHERE role = 'driver' AND active = 1 AND online = 1")).map((d) => d.id));
+  json(res, {
+    clients: [...byAddress.values()].filter((p) => points.has(p.address)).map((p) => ({ ...p, ...points.get(p.address), active: p.orders.length > 0 })),
+    notFound: [...byAddress.keys()].filter((a) => !points.has(a)).length - pending,
+    pending,
+    points: drivers.map((d) => ({ id: d.id, name: fullName(d), lat: d.lat, lng: d.lng, jobs: d.jobs, info: `${jobsText(d.jobs)} · точка ${ageText(d.geo_age)}`, trip: '' })),
+  });
+});
+
+// Карточка водителя на карте: сколько выполнено, что впереди, на каком этапе текущая заявка.
+r.get('/driver/:id', async (req, res) => {
+  const d = await get("SELECT id, first_name, last_name, login, phone, online, geo_at FROM users WHERE id = ? AND role = 'driver'", req.params.id);
+  if (!d) return json(res, { error: 'Водитель не найден.' });
+  const done = await get(`SELECT COUNT(*) AS total, COALESCE(SUM(substr(done_at, 1, 10) = ?), 0) AS today
+                          FROM orders WHERE driver_id = ? AND status = 'done'`, todayLocal(), d.id);
+  const jobs = await all(`SELECT id, arrive_at, address, status FROM orders WHERE driver_id = ? AND status IN (${ACTIVE_SQL})
+                          ORDER BY arrive_at, id`, d.id);
+  // Текущая — та, что уже в пути или в работе; иначе ближайшая по времени.
+  const current = jobs.find((j) => j.status !== 'assigned') || jobs[0] || null;
+  const step = (j) => `${STATUS[j.status][0]} (этап ${STEPS.indexOf(j.status) + 1} из ${STEPS.length})`;
+  json(res, {
+    name: fullName(d),
+    phone: d.phone,
+    doneToday: done.today,
+    doneTotal: done.total,
+    current: current ? { id: current.id, address: current.address, step: step(current) } : null,
+    schedule: jobs.map((j) => ({ id: j.id, when: when(j.arrive_at), address: j.address, status: STATUS[j.status][0], current: current && j.id === current.id })),
   });
 });
 

@@ -474,3 +474,41 @@ form.inline-edit input { min-width: 180px; }
 .suggest p { margin: 6px 0 0; }
 .suggest-others { margin: 8px 0 0; padding-left: 18px; color: var(--muted); }
 .distance .small:empty { display: none; }
+.geo-help { display: flex; flex-direction: column; gap: 10px; }
+.geo-help-item ol { margin: 4px 0 0; padding-left: 20px; }
+.geo-help details summary { cursor: pointer; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+.geo-help details[open] summary { margin-bottom: 8px; }
+.geo-help details .geo-help-item + .geo-help-item { margin-top: 8px; }
+
+/* Карта в форме заявки */
+.order-map-wrap { display: flex; flex-direction: column; gap: 8px; }
+.order-map { height: 380px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); overflow: hidden; background: var(--soft); z-index: 0; }
+@media (max-width: 800px) { .order-map { height: 320px; } }
+.map-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); }
+.map-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.md { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--line-strong); }
+.md-green { background: #16a34a; }
+.md-yellow { background: #eab308; }
+.md-orange { background: #f97316; }
+.md-red { background: #dc2626; }
+.md-client { background: var(--fg); border-radius: 50% 50% 50% 0; transform: rotate(-45deg); }
+.map-client span { display: block; width: 26px; height: 26px; background: var(--fg); border: 3px solid #fff; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); box-shadow: 0 2px 6px rgba(0, 0, 0, .35); }
+.map-card { display: flex; flex-direction: column; gap: 4px; font: 13px/1.4 Inter, sans-serif; min-width: 200px; }
+.map-card-name { font-size: 15px; }
+.map-card-h { margin-top: 6px; font-weight: 600; }
+.map-card ol { margin: 0; padding-left: 18px; max-height: 180px; overflow: auto; }
+.map-card li { margin-bottom: 4px; }
+.map-card-current { font-weight: 600; }
+.map-card .muted { font-weight: 400; }
+.map-client.past span { background: var(--st-gray); }
+.md-past { background: var(--st-gray); }
+.map-card-trip { font-weight: 600; }
+.home-map { margin-top: 32px; display: flex; flex-direction: column; gap: 10px; }
+.home-map-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.home-map-head .fchips { margin: 0; }
+.home-map-head [data-map-fresh] { margin-left: auto; }
+.home-map .order-map { height: 460px; }
+@media (max-width: 800px) { .home-map .order-map { height: 360px; } .home-map-head [data-map-fresh] { margin-left: 0; } }
+button.fchip { color: var(--fg); cursor: pointer; font-family: inherit; }
+button.fchip.on { color: var(--bg); }
+.order-map .leaflet-interactive:focus { outline: none; }

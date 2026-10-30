@@ -44,6 +44,7 @@ async function geocode(address) {
   if (direct) return direct;
   const cached = await get('SELECT lat, lng FROM geocodes WHERE address = ?', key);
   if (cached) return { lat: cached.lat, lng: cached.lng };
+  if (await get("SELECT 1 AS miss FROM geocode_misses WHERE address = ? AND created_at > datetime('now', '-7 days')", key)) return null;
   let point = null;
   try {
     if (/^https?:\/\//i.test(key)) {
@@ -59,7 +60,42 @@ async function geocode(address) {
     return null;
   }
   if (point) await run('INSERT OR REPLACE INTO geocodes (address, lat, lng) VALUES (?, ?, ?)', key, point.lat, point.lng);
+  // Не нашли — неделю этот адрес на карте не ищем (чтобы карта клиентов не спрашивала его каждый раз).
+  else await run('INSERT OR REPLACE INTO geocode_misses (address) VALUES (?)', key);
   return point;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Координаты многих адресов (карта клиентов): из кэша сразу, новых — не больше limit за раз
+// и не чаще раза в секунду (правило OpenStreetMap). pending — сколько адресов ещё не искали.
+async function geocodeMany(addresses, limit = 5) {
+  const keys = [...new Set(addresses.map((a) => String(a || '').trim().slice(0, 500)).filter(Boolean))];
+  const known = new Map((await all('SELECT address, lat, lng FROM geocodes')).map((g) => [g.address, { lat: g.lat, lng: g.lng }]));
+  const missed = new Set((await all("SELECT address FROM geocode_misses WHERE created_at > datetime('now', '-7 days')")).map((m) => m.address));
+  const out = new Map();
+  let looked = 0;
+  let pending = 0;
+  for (const key of keys) {
+    const point = coordsFromText(key) || known.get(key);
+    if (point) { out.set(key, point); continue; }
+    if (missed.has(key)) continue;
+    if (looked >= limit) { pending++; continue; }
+    if (looked) await sleep(1100);
+    looked++;
+    const found = await geocode(key);
+    if (found) out.set(key, found);
+  }
+  return { points: out, pending };
+}
+
+// Водители в сети с последней точкой и числом незакрытых заявок (для карт).
+async function driverPoints() {
+  const drivers = await all(`SELECT id, first_name, last_name, login, lat, lng, geo_at, ${AGE_SQL} FROM users
+                             WHERE role = 'driver' AND active = 1 AND online = 1 AND lat IS NOT NULL AND geo_at IS NOT NULL`);
+  const jobs = await all(`SELECT driver_id, COUNT(*) AS n FROM orders WHERE status IN (${ACTIVE_SQL}) AND driver_id IS NOT NULL GROUP BY driver_id`);
+  const count = new Map(jobs.map((j) => [j.driver_id, j.n]));
+  return drivers.map((d) => ({ ...d, jobs: count.get(d.id) || 0 }));
 }
 
 // Расстояние по прямой, км.
@@ -177,4 +213,4 @@ async function orderDistance(order) {
   return { text, note: notes.join(' · '), waiting: d.online && age >= 1 };
 }
 
-module.exports = { geocode, suggest, orderDistance, requestGeo, geoWanted, saveGeo, clearGeo, ageText, kmText, AGE_SQL };
+module.exports = { geocode, geocodeMany, driverPoints, suggest, orderDistance, requestGeo, geoWanted, saveGeo, clearGeo, ageText, kmText, AGE_SQL };
