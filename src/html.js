@@ -2,7 +2,7 @@ const { ROLES, STATUS, can, is } = require('./roles');
 
 const TZ = 'America/Toronto';
 // Меняйте вместе с VERSION в public/sw.js: так браузеры сразу получают новые style.css и app.js.
-const ASSET_VERSION = '16';
+const ASSET_VERSION = '17';
 
 class Raw {
   constructor(value) { this.value = value; }
@@ -173,6 +173,15 @@ function pushBanner(text) {
 </div>`;
 }
 
+// Плашка у работника: разрешить геолокацию (скрывается, когда уже разрешена; см. /app.js).
+function geoBanner() {
+  return html`<div class="notice geo-banner" data-geo-banner hidden>
+  <b>Геолокация</b>
+  <span data-geo-status>Пока вы в сети, CRM берёт ваше местоположение, когда подбирает работника на заявку и когда офис проверяет, далеко ли вы от клиента. Постоянно оно не отслеживается.</span>
+  <button type="button" data-geo-button>Разрешить геолокацию</button>
+</div>`;
+}
+
 // Ползунок «В сети»: зелёный — в сети, серый — нет. Переключается сразу, без отдельной кнопки.
 function onlineSwitch(user, path) {
   return html`<form method="post" action="/online" class="online-switch" id="online">
@@ -199,7 +208,7 @@ function layout({ user, title, body, path = '', flash, refresh }) {
     </div>`);
 
   return html`<!doctype html>
-<html lang="ru"${user ? html` data-events="1"` : ''}>
+<html lang="ru"${user ? html` data-events="1"` : ''}${user && user.role === 'driver' && user.online ? html` data-geo="1"` : ''}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -263,6 +272,6 @@ ${user ? html`
 }
 
 module.exports = {
-  html, raw, escape, layout, brandLogo, installBox, pushBanner, fullName, date, when, nowLocal, todayLocal, utcToLocal, money,
+  html, raw, escape, layout, brandLogo, installBox, pushBanner, geoBanner, fullName, date, when, nowLocal, todayLocal, utcToLocal, money,
   phoneHref, phoneLink, whatsappButton, navUrl, wazeUrl, mapsLink, roleTag, statusFlag, options,
 };

@@ -384,10 +384,10 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 .other-sum[open] summary { margin-bottom: 12px; }
 .other-sum-form { display: flex; flex-direction: column; gap: 12px; }
 .paid-diff { color: var(--st-orange); font-weight: 600; }
-.push-banner { display: flex; flex-direction: column; gap: 6px; background: var(--bg); }
-.push-banner button { align-self: flex-start; margin-top: 4px; }
+.push-banner, .geo-banner { display: flex; flex-direction: column; gap: 6px; background: var(--bg); }
+.push-banner button, .geo-banner button { align-self: flex-start; margin-top: 4px; }
 .push-banner [data-push-status]:empty { display: none; }
-@media (max-width: 800px) { .push-banner button { align-self: stretch; } }
+@media (max-width: 800px) { .push-banner button, .geo-banner button { align-self: stretch; } }
 .job-actions button, .job-actions .button { white-space: normal; line-height: 1.25; padding-left: 16px; padding-right: 16px; text-align: center; }
 
 /* Звонки */
@@ -464,3 +464,13 @@ form.inline-edit input { min-width: 180px; }
 .pay-edit summary { list-style: none; display: inline-flex; cursor: pointer; }
 .pay-edit summary::-webkit-details-marker { display: none; }
 .pay-edit[open] summary { margin-bottom: 12px; }
+
+/* Системное предложение в форме заявки и расстояние до работника */
+.suggest { border: 1px solid var(--fg); border-radius: var(--radius-sm); padding: 12px 16px; background: var(--bg); }
+.suggest-head { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 6px; }
+.suggest-best { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.suggest-best span { color: var(--muted); }
+.suggest-best button { margin-left: auto; }
+.suggest p { margin: 6px 0 0; }
+.suggest-others { margin: 8px 0 0; padding-left: 18px; color: var(--muted); }
+.distance .small:empty { display: none; }

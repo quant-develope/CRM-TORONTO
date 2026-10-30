@@ -149,6 +149,14 @@ CREATE TABLE IF NOT EXISTS sms (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Координаты адресов заявок (кэш поиска по карте, см. src/geo.js).
+CREATE TABLE IF NOT EXISTS geocodes (
+  address TEXT PRIMARY KEY,
+  lat REAL NOT NULL,
+  lng REAL NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS orders_driver ON orders (driver_id, status);
 CREATE INDEX IF NOT EXISTS orders_status ON orders (status, arrive_at)
 `;
@@ -221,6 +229,10 @@ async function migrate() {
   // В сети / не в сети: сотрудник сам переключает ползунок в меню.
   const userColumns = users;
   if (!userColumns.includes('online')) await run('ALTER TABLE users ADD COLUMN online INTEGER NOT NULL DEFAULT 0');
+  // Последняя точка работника (только пока он в сети) и когда CRM попросила новую (src/geo.js).
+  for (const [col, type] of [['lat', 'REAL'], ['lng', 'REAL'], ['geo_accuracy', 'INTEGER'], ['geo_at', 'TEXT'], ['geo_requested_at', 'TEXT']]) {
+    if (!userColumns.includes(col)) await run(`ALTER TABLE users ADD COLUMN ${col} ${type}`);
+  }
   // Сколько и как клиент заплатил на самом деле (водитель отмечает при закрытии заявки).
   const orderColumns = orders;
   if (!orderColumns.includes('paid_amount')) await run('ALTER TABLE orders ADD COLUMN paid_amount REAL');

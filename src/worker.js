@@ -13,6 +13,7 @@ import { eventsFor, lastEventId, vapidKeys } from './push';
 import { twilio, calls, leads, siteLead } from './routes/calls';
 import { openphone } from './routes/openphone';
 import { clients } from './routes/clients';
+import { geoWanted, saveGeo, clearGeo } from './geo';
 
 const SESSION_DAYS = 30;
 const COOKIE = 'toronto_session';
@@ -159,6 +160,11 @@ app.get('/drivers', async (req, res) => {
 app.post('/online', async (req, res) => {
   const online = req.body.online === '1' ? 1 : 0;
   await run('UPDATE users SET online = ? WHERE id = ?', online, req.user.id);
+  // Работник вышел в сеть — сразу берём точку для системного предложения; ушёл из сети — точку стираем.
+  if (is(req.user, 'driver')) {
+    if (online) await run("UPDATE users SET geo_requested_at = datetime('now') WHERE id = ?", req.user.id);
+    else await clearGeo(req.user.id);
+  }
   res.flash(online ? 'Вы в сети.' : 'Вы не в сети.');
   const back = String(req.body.back || '/');
   res.redirect(back.startsWith('/') && !back.startsWith('//') ? back : '/');
@@ -199,11 +205,19 @@ const json = (res, data, status = 200) => {
 };
 
 // Новые события после after (для всплывающих уведомлений и для service worker при push).
+// geo: true — CRM просит телефон работника прислать местоположение (src/geo.js).
 app.get('/api/events', async (req, res) => {
-  if (req.query.after === undefined) return json(res, { last: await lastEventId(req.user), events: [] });
+  const geo = geoWanted(req.user);
+  if (req.query.after === undefined) return json(res, { last: await lastEventId(req.user), events: [], geo });
   // Push без содержимого: service worker просит последнее событие.
   if (req.query.after === 'latest') return json(res, { events: await eventsFor(req.user, 0, 1) });
-  json(res, { events: (await eventsFor(req.user, req.query.after)).reverse() });
+  json(res, { events: (await eventsFor(req.user, req.query.after)).reverse(), geo });
+});
+
+// Местоположение с телефона работника (только роль «работник» и только в сети).
+app.post('/api/geo', async (req, res) => {
+  const point = await req.raw.json().catch(() => ({}));
+  json(res, { ok: await saveGeo(req.user, point || {}) });
 });
 
 app.get('/push/key', async (req, res) => json(res, { key: (await vapidKeys()).publicKey }));
