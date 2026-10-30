@@ -92,7 +92,7 @@ async function driverHome(req, res) {
 ${pushBanner('Включите, чтобы сразу узнавать о новой заявке.')}
 ${geoBanner()}
 ${jobs.length ? html`<div class="jobs">${jobs.map((j) => jobCard(j))}</div>` : html`<p class="muted">Вы в списке «Свободны». Новая заявка появится здесь, страница обновляется сама.</p>`}
-<p class="muted">Сегодня выполнено: ${today.n} · заработано ${money(today.pay)}. <a href="/jobs/done">Выполненные →</a></p>`, { refresh: idle ? 30 : 0 });
+<p class="muted">Сегодня выполнено: ${today.n} · заработано ${money(today.pay)}. <a href="/jobs/done">Выполненные →</a></p>`, { softRefresh: idle ? 30 : 0 });
 }
 
 r.get('/done', async (req, res) => {

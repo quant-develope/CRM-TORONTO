@@ -2,7 +2,7 @@ const { ROLES, STATUS, can, is } = require('./roles');
 
 const TZ = 'America/Toronto';
 // Меняйте вместе с VERSION в public/sw.js: так браузеры сразу получают новые style.css и app.js.
-const ASSET_VERSION = '17';
+const ASSET_VERSION = '18';
 
 class Raw {
   constructor(value) { this.value = value; }
@@ -199,7 +199,7 @@ function brandLogo() {
   return html`<img src="/logo.svg" alt="" class="brand-logo">`;
 }
 
-function layout({ user, title, body, path = '', flash, refresh }) {
+function layout({ user, title, body, path = '', flash, refresh, softRefresh }) {
   const groups = user ? menuFor(user) : [];
   const nav = groups.map(([label, links]) => html`
     <div class="nav-group">
@@ -208,7 +208,7 @@ function layout({ user, title, body, path = '', flash, refresh }) {
     </div>`);
 
   return html`<!doctype html>
-<html lang="ru"${user ? html` data-events="1"` : ''}${user && user.role === 'driver' && user.online ? html` data-geo="1"` : ''}>
+<html lang="ru"${user ? html` data-events="1"` : ''}${user && user.role === 'driver' && user.online ? html` data-geo="1"` : ''}${softRefresh ? html` data-soft-refresh="${softRefresh}"` : ''}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
