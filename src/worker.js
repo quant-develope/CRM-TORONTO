@@ -154,13 +154,14 @@ ${pushBanner('Включите, чтобы узнавать, когда води
     <h2 class="flush">Карта</h2>
     <div class="fchips">
       <button type="button" class="fchip on" data-map-show="active">Актуальные клиенты</button>
+      <button type="button" class="fchip" data-map-show="done">Отработанные</button>
       <button type="button" class="fchip" data-map-show="all">Все клиенты</button>
     </div>
     <button type="button" class="secondary small-btn" data-map-fresh>Обновить водителей</button>
   </div>
   <div class="order-map" data-map></div>
   <div class="map-legend small">
-    <span><i class="md md-client"></i>клиент с активной заявкой</span><span><i class="md md-client md-past"></i>клиент без заявки</span>
+    <span><i class="md md-client"></i>клиент с активной заявкой</span><span><i class="md md-client md-done"></i>отработанный клиент</span><span><i class="md md-client md-past"></i>клиент без заявок</span>
     <span><i class="md md-green"></i>свободен</span><span><i class="md md-yellow"></i>на заказе, скоро освободится</span><span><i class="md md-orange"></i>2 заказа</span><span><i class="md md-red"></i>3 и больше</span>
   </div>
   <p class="muted small" data-map-note></p>

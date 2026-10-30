@@ -389,7 +389,8 @@ function makeMap(L, node) {
   return { map, layer: L.layerGroup().addTo(map) };
 }
 
-const clientIcon = (active) => window.L.divIcon({ className: `map-client${active ? '' : ' past'}`, html: '<span></span>', iconSize: [26, 34], iconAnchor: [13, 34] });
+// Пин клиента: active — чёрный (есть активная заявка), done — синий (отработанный), none — серый (заявок не было).
+const clientIcon = (kind) => window.L.divIcon({ className: `map-client ${kind}`, html: '<span></span>', iconSize: [26, 34], iconAnchor: [13, 34] });
 
 // Водитель: кружок цвета загрузки; подсказка — имя и сколько ехать до заказа; по нажатию — карточка.
 function driverMarker(p) {
@@ -443,7 +444,7 @@ function setupMap(form, reload) {
     layer.clearLayers();
     const bounds = [];
     if (last.target) {
-      L.marker([last.target.lat, last.target.lng], { icon: clientIcon(true), zIndexOffset: 1000 }).bindTooltip('Клиент').addTo(layer);
+      L.marker([last.target.lat, last.target.lng], { icon: clientIcon('active'), zIndexOffset: 1000 }).bindTooltip('Клиент').addTo(layer);
       bounds.push([last.target.lat, last.target.lng]);
     }
     for (const p of last.points || []) {
@@ -476,7 +477,8 @@ function setupMap(form, reload) {
 
 // Карта на главной (Quant, Веб, КЦ): клиенты и водители в сети. Сама обновляется раз в минуту,
 // но свежую точку у водителей спрашивает только по кнопке «Обновить водителей».
-function clientCard(c) {
+// Карточка клиента: контакты и все работы с ним (активные, выполненные, отменённые).
+async function clientCard(c) {
   const box = el('div', undefined, 'map-card');
   if (c.clientId) {
     const a = el('a', c.name || 'Клиент', 'map-card-name');
@@ -489,20 +491,29 @@ function clientCard(c) {
     box.append(tel);
   }
   box.append(el('div', c.address, 'muted'));
-  if (c.orders.length) {
-    const ol = el('ol');
-    for (const o of c.orders) {
-      const li = el('li');
-      const a = el('a', `№${o.id}`);
-      a.href = `/orders/${o.id}`;
-      li.append(el('b', o.when), ' · ', a, ` · ${o.status}`, el('div', `Водитель: ${o.driver}`, 'muted'));
-      ol.append(li);
-    }
-    box.append(ol);
-  } else if (c.clientId) {
+  if (c.clientId) {
     const a = el('a', '+ Новая заявка');
     a.href = `/orders/new?client=${c.clientId}`;
     box.append(a);
+  }
+  try {
+    const q = new URLSearchParams({ client: c.clientId || '', address: c.address });
+    const { jobs } = await (await fetch(`/orders/client-jobs?${q}`, { credentials: 'same-origin', cache: 'no-store' })).json();
+    box.append(el('div', jobs.length ? `Все работы: ${jobs.length}` : 'Работ с этим клиентом ещё не было.', 'map-card-h'));
+    if (jobs.length) {
+      const ol = el('ol');
+      for (const o of jobs) {
+        const li = el('li');
+        const a = el('a', `№${o.id}`);
+        a.href = `/orders/${o.id}`;
+        li.append(el('b', o.when), ' · ', a, ` · ${o.status} · ${o.money}`, el('div', `Водитель: ${o.driver}`, 'muted'));
+        if (o.address !== c.address) li.append(el('div', o.address, 'muted'));
+        ol.append(li);
+      }
+      box.append(ol);
+    }
+  } catch (err) {
+    box.append(el('p', 'Не удалось загрузить работы клиента.'));
   }
   return box;
 }
@@ -523,8 +534,9 @@ async function setupHomeMap(section) {
       layer.clearLayers();
       const bounds = [];
       for (const c of d.clients) {
-        L.marker([c.lat, c.lng], { icon: clientIcon(c.active), zIndexOffset: c.active ? 500 : 0 })
-          .bindTooltip(c.name || c.address).bindPopup(() => clientCard(c), { maxWidth: 280 }).addTo(layer);
+        const m = L.marker([c.lat, c.lng], { icon: clientIcon(c.kind), zIndexOffset: c.kind === 'active' ? 500 : c.kind === 'done' ? 250 : 0 })
+          .bindTooltip(c.name || c.address).bindPopup('Загрузка…', { maxWidth: 300 }).addTo(layer);
+        m.on('popupopen', async () => m.setPopupContent(await clientCard(c)));
         bounds.push([c.lat, c.lng]);
       }
       for (const p of d.points) {
@@ -558,7 +570,8 @@ async function setupHomeMap(section) {
     setTimeout(load, 16000);
   });
   load();
-  setInterval(() => { if (!document.hidden) load(); }, 60000);
+  // Пока открыта карточка, карту не перерисовываем — иначе карточка закроется.
+  setInterval(() => { if (!document.hidden && !section.querySelector('.leaflet-popup')) load(); }, 60000);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
