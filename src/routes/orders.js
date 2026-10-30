@@ -7,6 +7,7 @@ const { driversBoard, boardBlock, ACTIVE_SQL } = require('../board');
 const { notify } = require('../push');
 const { callPrefill } = require('./calls');
 const { ensureClient } = require('./clients');
+const { suggest, orderDistance, ageText, kmText } = require('../geo');
 
 const r = new Router();
 
@@ -99,6 +100,7 @@ async function form(o, { action, submit, callId }) {
     </fieldset>
 
     <h2 class="wide">Водитель</h2>
+    <div class="wide suggest" data-suggest data-order="${o.id || ''}" hidden></div>
     <label class="wide">Кому назначить<select name="driver_id" required>${options(driverOptions, o.driver_id, { empty: drivers.length ? '— выберите водителя —' : 'Сначала добавьте водителей' })}</select></label>
   </div>
   <div class="actions"><button>${submit}</button><a href="${o.id ? `/orders/${o.id}` : '/orders'}" class="button secondary">Отмена</a></div>
@@ -163,6 +165,44 @@ r.post('/', async (req, res) => {
   res.redirect(`/orders/${lastInsertRowid}`);
 });
 
+const json = (res, data) => {
+  res.headers.set('content-type', 'application/json; charset=utf-8');
+  res.headers.set('cache-control', 'no-store');
+  return res.send(JSON.stringify(data));
+};
+
+const jobsText = (n) => {
+  if (!n) return 'свободен';
+  const word = n % 10 === 1 && n % 100 !== 11 ? 'заявка' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'заявки' : 'заявок';
+  return `${n} ${word}`;
+};
+
+// Системное предложение для формы заявки (см. src/geo.js и /app.js).
+r.get('/suggest', async (req, res) => {
+  const { target, drivers } = await suggest(req.query.address, { exceptOrder: req.query.order });
+  const info = (d) => [jobsText(d.jobs),
+    d.trip ? `${kmText(d.trip.km)}, ~${d.trip.min} мин${d.trip.rough ? ' (по прямой)' : ''}` : target ? 'нет местоположения' : '',
+    d.trip ? `точка ${ageText(d.geo_age)}` : ''].filter(Boolean).join(' · ');
+  const view = (d) => ({ id: d.id, name: fullName(d), info: info(d) });
+  const [best, ...others] = drivers;
+  const notes = [];
+  if (!drivers.length) notes.push('Нет работников в сети.');
+  else if (!target) notes.push('Адрес не найден на карте — предложение только по загрузке работников.');
+  json(res, {
+    best: best ? view(best) : null,
+    others: others.slice(0, 4).map(view),
+    text: notes.join(' '),
+    waiting: drivers.some((d) => !d.geo_at || d.geo_age >= 1),
+  });
+});
+
+// Как далеко работник от адреса заявки; если едет — сколько минут до клиента.
+r.get('/:id/distance', async (req, res) => {
+  const o = await get('SELECT id, address, status, driver_id FROM orders WHERE id = ?', req.params.id);
+  if (!o || !o.driver_id || !['assigned', 'accepted'].includes(o.status)) return json(res, { text: '' });
+  json(res, await orderDistance(o));
+});
+
 const loadOrder = (id) => get(`SELECT o.*, u.first_name, u.last_name, u.login, u.phone AS driver_phone,
   c.first_name AS c_first, c.last_name AS c_last, c.login AS c_login
   FROM orders o LEFT JOIN users u ON u.id = o.driver_id LEFT JOIN users c ON c.id = o.created_by WHERE o.id = ?`, id);
@@ -185,6 +225,8 @@ r.get('/:id', async (req, res) => {
   <dt>Задача</dt><dd class="task-text">${o.task || '—'}</dd>
   <dt>По прибытии</dt><dd>${o.notify_client ? html`<span class="notify-yes">Позвонить клиенту</span>` : 'Сразу приступать к работе'}</dd>
   <dt>Водитель</dt><dd>${o.driver_id ? html`${fullName(o)} · ${phoneLink(o.driver_phone)}` : '—'}</dd>
+  ${o.driver_id && ['assigned', 'accepted'].includes(o.status) ? html`<dt>${o.status === 'accepted' ? 'До клиента' : 'Где работник'}</dt>
+  <dd class="distance" data-distance="/orders/${o.id}/distance"><span data-distance-text>Узнаём местоположение…</span><br><span class="muted small" data-distance-note></span></dd>` : ''}
   <dt>Создал</dt><dd>${fullName({ first_name: o.c_first, last_name: o.c_last, login: o.c_login })} · ${date(o.created_at)}</dd>
 </dl>
 ${o.status === 'done' && can.editPayment(req.user) ? html`

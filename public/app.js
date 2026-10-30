@@ -36,6 +36,161 @@ document.addEventListener('keydown', (event) => {
   if (href && document.querySelector(`.side a[href="${href}"]`)) location.href = href;
 });
 
+// --- Геолокация работника ---
+// Точка отправляется не постоянно, а когда CRM попросила (флаг geo в /api/events), при «Принять» и по кнопке разрешения.
+const geoOn = document.documentElement.dataset.geo === '1';
+let geoBusy = false;
+
+function sendGeo({ timeout = 15000 } = {}) {
+  return new Promise((resolve) => {
+    if (!geoOn || geoBusy || !('geolocation' in navigator)) return resolve(false);
+    geoBusy = true;
+    const done = (ok) => { geoBusy = false; geoState(); resolve(ok); };
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      try {
+        await fetch('/api/geo', {
+          method: 'POST', credentials: 'same-origin', keepalive: true, headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+        });
+      } catch (err) { /* нет связи — CRM попросит ещё раз */ }
+      done(true);
+    }, () => done(false), { enableHighAccuracy: true, timeout, maximumAge: 30000 });
+  });
+}
+
+// Плашка «Разрешить геолокацию»: видна, пока доступ не дан.
+async function geoState() {
+  const box = document.querySelector('[data-geo-banner]');
+  if (!box || !geoOn) return;
+  const status = box.querySelector('[data-geo-status]');
+  const button = box.querySelector('[data-geo-button]');
+  if (!('geolocation' in navigator)) {
+    status.textContent = 'Этот браузер не даёт местоположение — системное предложение вас не учтёт.';
+    button.hidden = true;
+    box.hidden = false;
+    return;
+  }
+  let state = 'prompt';
+  try { state = (await navigator.permissions.query({ name: 'geolocation' })).state; } catch (err) { /* старый браузер — покажем кнопку */ }
+  if (state === 'granted') { box.hidden = true; return; }
+  if (state === 'denied') {
+    status.textContent = 'Геолокация запрещена. Разрешите её для этого сайта в настройках браузера (на iPhone: Настройки → Safari → Геопозиция), иначе система не сможет предлагать вам заявки рядом.';
+    button.hidden = true;
+  }
+  box.hidden = false;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (!geoOn) return;
+  geoState();
+  document.querySelectorAll('[data-geo-button]').forEach((b) => b.addEventListener('click', () => sendGeo()));
+  // «Принять» заявку: сначала точка (откуда работник выезжает), потом переход в навигатор.
+  document.querySelectorAll('form[action$="/accept"]').forEach((form) => form.addEventListener('submit', async (event) => {
+    if (form.dataset.sent) return;
+    event.preventDefault();
+    form.dataset.sent = '1';
+    await sendGeo({ timeout: 5000 });
+    form.submit();
+  }));
+});
+
+// --- Расстояние до работника и системное предложение (КЦ, Веб, Quant) ---
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Заявка: блок «Где работник». Телефон работника присылает точку в течение ~10 секунд, поэтому спрашиваем несколько раз.
+async function loadDistance(box) {
+  const text = box.querySelector('[data-distance-text]');
+  const note = box.querySelector('[data-distance-note]');
+  for (const wait of [0, 6000, 8000, 10000]) {
+    await sleep(wait);
+    try {
+      const d = await (await fetch(box.dataset.distance, { credentials: 'same-origin', cache: 'no-store' })).json();
+      text.textContent = d.text;
+      note.textContent = d.note || '';
+      if (!d.waiting) return;
+    } catch (err) { return; }
+  }
+}
+
+// Новая заявка: по адресу — работник в сети с наименьшим числом заявок и ближе всех.
+function setupSuggest(box) {
+  const form = box.closest('form');
+  const address = form.querySelector('[name="address"]');
+  const select = form.querySelector('[name="driver_id"]');
+  let run = 0;
+  let autoPicked = false;
+  const render = (d) => {
+    box.replaceChildren();
+    const head = document.createElement('div');
+    head.className = 'suggest-head';
+    head.textContent = 'Системное предложение';
+    box.append(head);
+    if (!d.best) {
+      const p = document.createElement('p');
+      p.className = 'muted small';
+      p.textContent = d.text;
+      box.append(p);
+      return;
+    }
+    const line = document.createElement('div');
+    line.className = 'suggest-best';
+    const name = document.createElement('b');
+    name.textContent = d.best.name;
+    const info = document.createElement('span');
+    info.textContent = d.best.info;
+    const pick = document.createElement('button');
+    pick.type = 'button';
+    pick.className = 'secondary small-btn';
+    pick.textContent = String(select.value) === String(d.best.id) ? 'Выбран' : 'Назначить';
+    pick.addEventListener('click', () => { select.value = d.best.id; pick.textContent = 'Выбран'; });
+    line.append(name, info, pick);
+    box.append(line);
+    if (d.text) {
+      const p = document.createElement('p');
+      p.className = 'muted small';
+      p.textContent = d.text;
+      box.append(p);
+    }
+    if (d.others.length) {
+      const ul = document.createElement('ul');
+      ul.className = 'suggest-others small';
+      for (const o of d.others) {
+        const li = document.createElement('li');
+        li.textContent = `${o.name} — ${o.info}`;
+        ul.append(li);
+      }
+      box.append(ul);
+    }
+  };
+  const load = async () => {
+    const value = address.value.trim();
+    if (!value) { box.hidden = true; return; }
+    const mine = ++run;
+    box.hidden = false;
+    for (const wait of [0, 6000, 8000, 10000]) {
+      await sleep(wait);
+      if (mine !== run) return;
+      try {
+        const q = new URLSearchParams({ address: value, order: box.dataset.order || '' });
+        const d = await (await fetch(`/orders/suggest?${q}`, { credentials: 'same-origin', cache: 'no-store' })).json();
+        if (mine !== run) return;
+        // Водитель ещё не выбран — подставляем предложение.
+        if (d.best && (!select.value || autoPicked)) { select.value = d.best.id; autoPicked = true; }
+        render(d);
+        if (!d.waiting) return;
+      } catch (err) { return; }
+    }
+  };
+  select.addEventListener('change', () => { autoPicked = false; });
+  address.addEventListener('change', load);
+  if (address.value.trim()) load();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('[data-distance]').forEach((box) => loadDistance(box));
+  document.querySelectorAll('[data-suggest]').forEach((box) => setupSuggest(box));
+});
+
 // --- Уведомления ---
 // Всплывающее уведомление в правом верхнем углу: сайт раз в 10 секунд спрашивает новые события.
 const eventsOn = document.documentElement.dataset.events === '1';
@@ -78,6 +233,7 @@ async function pollEvents() {
   try {
     const url = lastEvent === null ? '/api/events' : `/api/events?after=${lastEvent}`;
     const data = await (await fetch(url, { credentials: 'same-origin', cache: 'no-store' })).json();
+    if (geoOn && data.geo) sendGeo();
     if (lastEvent === null) { lastEvent = data.last; return; }
     for (const e of data.events) { toast(e); lastEvent = Math.max(lastEvent, e.id); }
   } catch (err) { /* нет связи — спросим в следующий раз */ }

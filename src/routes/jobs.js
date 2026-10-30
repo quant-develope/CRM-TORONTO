@@ -2,7 +2,7 @@
 const { Router } = require('../mini');
 const { get, all, run } = require('../db');
 const { is, PAY_METHODS, PAY_HOW, paidAmount, paidMethod } = require('../roles');
-const { html, raw, options, pushBanner, date, when, nowLocal, todayLocal, money, phoneHref, phoneLink, navUrl, wazeUrl, statusFlag } = require('../html');
+const { html, raw, options, pushBanner, geoBanner, date, when, nowLocal, todayLocal, money, phoneHref, phoneLink, navUrl, wazeUrl, statusFlag } = require('../html');
 const { ACTIVE_SQL } = require('../board');
 const { notify } = require('../push');
 
@@ -90,6 +90,7 @@ async function driverHome(req, res) {
   const idle = jobs.every((j) => j.status === 'assigned');
   res.page(jobs.length ? 'Мои заявки' : 'Заявок нет', html`
 ${pushBanner('Включите, чтобы сразу узнавать о новой заявке.')}
+${geoBanner()}
 ${jobs.length ? html`<div class="jobs">${jobs.map((j) => jobCard(j))}</div>` : html`<p class="muted">Вы в списке «Свободны». Новая заявка появится здесь, страница обновляется сама.</p>`}
 <p class="muted">Сегодня выполнено: ${today.n} · заработано ${money(today.pay)}. <a href="/jobs/done">Выполненные →</a></p>`, { refresh: idle ? 30 : 0 });
 }
